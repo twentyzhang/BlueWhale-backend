@@ -61,10 +61,13 @@ CREATE TABLE `user` (
 -- ----------------------------
 DROP TABLE IF EXISTS `product_category`;
 CREATE TABLE `product_category` (
-    `id`        BIGINT      NOT NULL AUTO_INCREMENT  COMMENT '分类ID',
-    `name`      VARCHAR(50) NOT NULL                 COMMENT '分类名称',
-    `parent_id` BIGINT          NULL                 COMMENT '父分类ID，NULL 为顶级分类',
-    `deleted`   TINYINT     NOT NULL DEFAULT 0       COMMENT '逻辑删除: 0正常 1删除',
+    `id`         BIGINT      NOT NULL AUTO_INCREMENT             COMMENT '分类ID',
+    `name`       VARCHAR(50) NOT NULL                            COMMENT '分类名称',
+    `parent_id`  BIGINT          NULL                            COMMENT '父分类ID，NULL 为顶级分类',
+    `created_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP  COMMENT '创建时间',
+    `updated_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                      ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`    TINYINT     NOT NULL DEFAULT 0                  COMMENT '逻辑删除: 0正常 1删除',
     PRIMARY KEY (`id`),
     INDEX `idx_parent_id` (`parent_id`),
     CONSTRAINT `fk_category_parent` FOREIGN KEY (`parent_id`) REFERENCES `product_category` (`id`)
@@ -263,14 +266,17 @@ CREATE TABLE `orders` (
 -- ----------------------------
 DROP TABLE IF EXISTS `order_item`;
 CREATE TABLE `order_item` (
-    `id`           BIGINT         NOT NULL AUTO_INCREMENT  COMMENT '条目ID',
-    `order_id`     BIGINT         NOT NULL                 COMMENT '所属订单ID',
-    `product_id`   BIGINT         NOT NULL                 COMMENT '商品ID（用于跳转详情）',
-    `product_name` VARCHAR(200)   NOT NULL                 COMMENT '商品名称（快照）',
-    `product_image` VARCHAR(255)      NULL                 COMMENT '商品图片URL（快照）',
-    `unit_price`   DECIMAL(10, 2) NOT NULL                 COMMENT '下单时单价（快照）',
-    `quantity`     INT            NOT NULL                 COMMENT '购买数量',
-    `subtotal`     DECIMAL(10, 2) NOT NULL                 COMMENT '小计 = unit_price × quantity',
+    `id`            BIGINT         NOT NULL AUTO_INCREMENT             COMMENT '条目ID',
+    `order_id`      BIGINT         NOT NULL                            COMMENT '所属订单ID',
+    `product_id`    BIGINT         NOT NULL                            COMMENT '商品ID（用于跳转详情）',
+    `product_name`  VARCHAR(200)   NOT NULL                            COMMENT '商品名称（快照）',
+    `product_image` VARCHAR(255)       NULL                            COMMENT '商品图片URL（快照）',
+    `unit_price`    DECIMAL(10, 2) NOT NULL                            COMMENT '下单时单价（快照）',
+    `quantity`      INT            NOT NULL                            COMMENT '购买数量',
+    `subtotal`      DECIMAL(10, 2) NOT NULL                            COMMENT '小计 = unit_price × quantity',
+    `created_at`    DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP  COMMENT '创建时间',
+    `updated_at`    DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                            ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
     INDEX `idx_order_id`   (`order_id`),
     INDEX `idx_product_id` (`product_id`),
