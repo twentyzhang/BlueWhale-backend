@@ -2,16 +2,16 @@
 
 ## Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Language | Java 17 |
-| Framework | Spring Boot 3.4.0 |
-| Build Tool | Maven |
-| ORM | MyBatis Plus 3.5.9 |
-| Security | Spring Security (stateless / JWT-ready) |
-| Database | MySQL 8.x |
+| Layer      | Technology                                               |
+| ---------- | -------------------------------------------------------- |
+| Language   | Java 17                                                  |
+| Framework  | Spring Boot 3.4.0                                        |
+| Build Tool | Maven                                                    |
+| ORM        | MyBatis Plus 3.5.9                                       |
+| Security   | Spring Security (stateless / JWT-ready)                  |
+| Database   | MySQL 8.x                                                |
 | Validation | Jakarta Bean Validation (spring-boot-starter-validation) |
-| Utility | Lombok, Spring Boot DevTools |
+| Utility    | Lombok, Spring Boot DevTools                             |
 
 ## Project Info
 

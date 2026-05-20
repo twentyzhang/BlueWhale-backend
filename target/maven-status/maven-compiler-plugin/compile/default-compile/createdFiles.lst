@@ -1,0 +1,5 @@
+com\twentyzhang\bluewhale\BluewhaleApplication.class
+com\twentyzhang\bluewhale\config\MybatisPlusConfig.class
+com\twentyzhang\bluewhale\exception\BusinessException.class
+com\twentyzhang\bluewhale\exception\GlobalExceptionHandler.class
+com\twentyzhang\bluewhale\config\SecurityConfig.class
