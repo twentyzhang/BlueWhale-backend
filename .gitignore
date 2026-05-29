@@ -1,0 +1,18 @@
+# Maven build output
+target/
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local Claude Code settings (machine-specific)
+.claude/settings.local.json
+
+# Environment / secrets
+.env
+*.env.local

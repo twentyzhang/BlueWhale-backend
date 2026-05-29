@@ -1,6 +1,6 @@
 package com.twentyzhang.bluewhale.controller;
 
-import com.twentyzhang.bluewhale.dto.ApiResponse;
+import com.twentyzhang.bluewhale.common.Result;
 import com.twentyzhang.bluewhale.dto.LoginRequest;
 import com.twentyzhang.bluewhale.dto.LoginResponse;
 import com.twentyzhang.bluewhale.dto.RegisterRequest;
@@ -20,13 +20,13 @@ public class AuthController {
     private final UserService userService;
 
     @PostMapping("/register")
-    public ApiResponse<Void> register(@RequestBody @Valid RegisterRequest request) {
+    public Result<Void> register(@RequestBody @Valid RegisterRequest request) {
         userService.register(request);
-        return ApiResponse.success();
+        return Result.success();
     }
 
     @PostMapping("/login")
-    public ApiResponse<LoginResponse> login(@RequestBody @Valid LoginRequest request) {
-        return ApiResponse.success(userService.login(request));
+    public Result<LoginResponse> login(@RequestBody @Valid LoginRequest request) {
+        return Result.success(userService.login(request));
     }
 }

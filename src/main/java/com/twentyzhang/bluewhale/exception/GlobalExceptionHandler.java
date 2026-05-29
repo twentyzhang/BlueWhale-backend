@@ -1,48 +1,38 @@
 package com.twentyzhang.bluewhale.exception;
 
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import com.twentyzhang.bluewhale.common.Result;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.stream.Collectors;
 
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<Map<String, Object>> handleBusinessException(BusinessException ex) {
-        return buildResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
-    }
-
+    /** Validation 校验失败 → 400，将所有字段错误拼接后返回 */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Map<String, Object>> handleValidationException(MethodArgumentNotValidException ex) {
-        Map<String, String> errors = new HashMap<>();
-        ex.getBindingResult().getAllErrors().forEach(error -> {
-            String field = ((FieldError) error).getField();
-            errors.put(field, error.getDefaultMessage());
-        });
-        Map<String, Object> body = new HashMap<>();
-        body.put("timestamp", LocalDateTime.now());
-        body.put("status", HttpStatus.BAD_REQUEST.value());
-        body.put("errors", errors);
-        return ResponseEntity.badRequest().body(body);
+    public Result<Void> handleValidationException(MethodArgumentNotValidException ex) {
+        String message = ex.getBindingResult().getFieldErrors().stream()
+                .map(FieldError::getDefaultMessage)
+                .collect(Collectors.joining("; "));
+        return Result.fail(Result.CODE_BAD_REQUEST, message);
     }
 
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String, Object>> handleGenericException(Exception ex) {
-        return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error");
+    /** 业务异常 → 使用异常内的 code */
+    @ExceptionHandler(BusinessException.class)
+    public Result<Void> handleBusinessException(BusinessException ex) {
+        log.warn("业务异常 [{}]: {}", ex.getCode(), ex.getMessage());
+        return Result.fail(ex.getCode(), ex.getMessage());
     }
 
-    private ResponseEntity<Map<String, Object>> buildResponse(HttpStatus status, String message) {
-        Map<String, Object> body = new HashMap<>();
-        body.put("timestamp", LocalDateTime.now());
-        body.put("status", status.value());
-        body.put("message", message);
-        return ResponseEntity.status(status).body(body);
+    /** 其他运行时异常 → 500，隐藏内部细节 */
+    @ExceptionHandler(RuntimeException.class)
+    public Result<Void> handleRuntimeException(RuntimeException ex) {
+        log.error("未预期运行时异常", ex);
+        return Result.fail(Result.CODE_SERVER_ERROR, "服务器内部错误，请稍后重试");
     }
 }

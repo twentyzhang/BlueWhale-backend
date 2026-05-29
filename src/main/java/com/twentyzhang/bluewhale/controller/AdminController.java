@@ -1,7 +1,7 @@
 package com.twentyzhang.bluewhale.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.twentyzhang.bluewhale.dto.ApiResponse;
+import com.twentyzhang.bluewhale.common.Result;
 import com.twentyzhang.bluewhale.dto.GlobalOrderReportResponse;
 import com.twentyzhang.bluewhale.dto.StoreListItemResponse;
 import com.twentyzhang.bluewhale.service.ReportService;
@@ -25,17 +25,17 @@ public class AdminController {
 
     // 需要鉴权 仅 Admin
     @GetMapping("/stores")
-    public ApiResponse<IPage<StoreListItemResponse>> getAdminStoreList(
+    public Result<IPage<StoreListItemResponse>> getAdminStoreList(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
-        return ApiResponse.success(storeService.getAdminStoreList(page, size));
+        return Result.success(storeService.getAdminStoreList(page, size));
     }
 
     // 需要鉴权 仅 Admin
     @GetMapping("/reports/orders")
-    public ApiResponse<GlobalOrderReportResponse> getGlobalOrderReport(
+    public Result<GlobalOrderReportResponse> getGlobalOrderReport(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
-        return ApiResponse.success(reportService.getGlobalOrderReport(startDate, endDate));
+        return Result.success(reportService.getGlobalOrderReport(startDate, endDate));
     }
 }

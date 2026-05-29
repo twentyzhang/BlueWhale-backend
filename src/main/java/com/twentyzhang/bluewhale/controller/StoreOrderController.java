@@ -1,7 +1,7 @@
 package com.twentyzhang.bluewhale.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.twentyzhang.bluewhale.dto.ApiResponse;
+import com.twentyzhang.bluewhale.common.Result;
 import com.twentyzhang.bluewhale.dto.OrderListItemResponse;
 import com.twentyzhang.bluewhale.dto.ShipOrderRequest;
 import com.twentyzhang.bluewhale.dto.ShipOrderResponse;
@@ -25,19 +25,19 @@ public class StoreOrderController {
 
     // 需要鉴权 仅 Staff（本店）
     @GetMapping
-    public ApiResponse<IPage<OrderListItemResponse>> getStoreOrders(
+    public Result<IPage<OrderListItemResponse>> getStoreOrders(
             @PathVariable Long storeId,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
-        return ApiResponse.success(orderService.getStoreOrders(storeId, status, page, size));
+        return Result.success(orderService.getStoreOrders(storeId, status, page, size));
     }
 
     // 需要鉴权 仅 Staff（本店，订单状态为 PAID）
     @PostMapping("/{orderId}/ship")
-    public ApiResponse<ShipOrderResponse> shipOrder(@PathVariable Long storeId,
-                                                     @PathVariable Long orderId,
-                                                     @RequestBody @Valid ShipOrderRequest request) {
-        return ApiResponse.success(orderService.shipOrder(storeId, orderId, request));
+    public Result<ShipOrderResponse> shipOrder(@PathVariable Long storeId,
+                                                @PathVariable Long orderId,
+                                                @RequestBody @Valid ShipOrderRequest request) {
+        return Result.success(orderService.shipOrder(storeId, orderId, request));
     }
 }

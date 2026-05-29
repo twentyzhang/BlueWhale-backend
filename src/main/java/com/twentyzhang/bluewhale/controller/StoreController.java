@@ -1,7 +1,7 @@
 package com.twentyzhang.bluewhale.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.twentyzhang.bluewhale.dto.ApiResponse;
+import com.twentyzhang.bluewhale.common.Result;
 import com.twentyzhang.bluewhale.dto.CreateStoreRequest;
 import com.twentyzhang.bluewhale.dto.CreateStoreResponse;
 import com.twentyzhang.bluewhale.dto.StoreDetailResponse;
@@ -27,28 +27,28 @@ public class StoreController {
     private final StoreService storeService;
 
     @GetMapping
-    public ApiResponse<IPage<StoreListItemResponse>> getStoreList(
+    public Result<IPage<StoreListItemResponse>> getStoreList(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
-        return ApiResponse.success(storeService.getStoreList(page, size));
+        return Result.success(storeService.getStoreList(page, size));
     }
 
     @GetMapping("/{storeId}")
-    public ApiResponse<StoreDetailResponse> getStoreById(@PathVariable Long storeId) {
-        return ApiResponse.success(storeService.getStoreById(storeId));
+    public Result<StoreDetailResponse> getStoreById(@PathVariable Long storeId) {
+        return Result.success(storeService.getStoreById(storeId));
     }
 
     // 需要鉴权 仅 Admin
     @PostMapping
-    public ApiResponse<CreateStoreResponse> createStore(@RequestBody @Valid CreateStoreRequest request) {
-        return ApiResponse.success(storeService.createStore(request));
+    public Result<CreateStoreResponse> createStore(@RequestBody @Valid CreateStoreRequest request) {
+        return Result.success(storeService.createStore(request));
     }
 
     // 需要鉴权 仅 Admin
     @PutMapping("/{storeId}")
-    public ApiResponse<Void> updateStore(@PathVariable Long storeId,
-                                         @RequestBody UpdateStoreRequest request) {
+    public Result<Void> updateStore(@PathVariable Long storeId,
+                                    @RequestBody UpdateStoreRequest request) {
         storeService.updateStore(storeId, request);
-        return ApiResponse.success();
+        return Result.success();
     }
 }

@@ -1,7 +1,7 @@
 package com.twentyzhang.bluewhale.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.twentyzhang.bluewhale.dto.ApiResponse;
+import com.twentyzhang.bluewhale.common.Result;
 import com.twentyzhang.bluewhale.dto.CreateProductRequest;
 import com.twentyzhang.bluewhale.dto.IdResponse;
 import com.twentyzhang.bluewhale.dto.ProductListItemResponse;
@@ -31,7 +31,7 @@ public class StoreProductController {
     private final ProductService productService;
 
     @GetMapping
-    public ApiResponse<IPage<ProductListItemResponse>> getProductsByStore(
+    public Result<IPage<ProductListItemResponse>> getProductsByStore(
             @PathVariable Long storeId,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Long categoryId,
@@ -39,39 +39,39 @@ public class StoreProductController {
             @RequestParam(required = false) BigDecimal maxPrice,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
-        return ApiResponse.success(
+        return Result.success(
                 productService.getProductsByStore(storeId, keyword, categoryId, minPrice, maxPrice, page, size));
     }
 
     // 需要鉴权 仅 Staff（本店）
     @PostMapping
-    public ApiResponse<IdResponse> createProduct(@PathVariable Long storeId,
-                                                  @RequestBody @Valid CreateProductRequest request) {
-        return ApiResponse.success(IdResponse.builder().id(productService.createProduct(storeId, request)).build());
+    public Result<IdResponse> createProduct(@PathVariable Long storeId,
+                                             @RequestBody @Valid CreateProductRequest request) {
+        return Result.success(IdResponse.builder().id(productService.createProduct(storeId, request)).build());
     }
 
     // 需要鉴权 仅 Staff（本店）
     @PutMapping("/{productId}")
-    public ApiResponse<Void> updateProduct(@PathVariable Long storeId,
-                                            @PathVariable Long productId,
-                                            @RequestBody UpdateProductRequest request) {
+    public Result<Void> updateProduct(@PathVariable Long storeId,
+                                      @PathVariable Long productId,
+                                      @RequestBody UpdateProductRequest request) {
         productService.updateProduct(storeId, productId, request);
-        return ApiResponse.success();
+        return Result.success();
     }
 
     // 需要鉴权 仅 Staff（本店）
     @DeleteMapping("/{productId}")
-    public ApiResponse<Void> deleteProduct(@PathVariable Long storeId,
-                                            @PathVariable Long productId) {
+    public Result<Void> deleteProduct(@PathVariable Long storeId,
+                                      @PathVariable Long productId) {
         productService.deleteProduct(storeId, productId);
-        return ApiResponse.success();
+        return Result.success();
     }
 
     // 需要鉴权 仅 Staff（本店）
     @PutMapping("/{productId}/stock")
-    public ApiResponse<UpdateStockResponse> updateStock(@PathVariable Long storeId,
-                                                         @PathVariable Long productId,
-                                                         @RequestBody @Valid UpdateStockRequest request) {
-        return ApiResponse.success(productService.updateStock(storeId, productId, request));
+    public Result<UpdateStockResponse> updateStock(@PathVariable Long storeId,
+                                                    @PathVariable Long productId,
+                                                    @RequestBody @Valid UpdateStockRequest request) {
+        return Result.success(productService.updateStock(storeId, productId, request));
     }
 }

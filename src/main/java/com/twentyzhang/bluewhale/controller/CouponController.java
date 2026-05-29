@@ -1,9 +1,11 @@
 package com.twentyzhang.bluewhale.controller;
 
-import com.twentyzhang.bluewhale.dto.ApiResponse;
+import com.twentyzhang.bluewhale.common.AuthUser;
+import com.twentyzhang.bluewhale.common.Result;
 import com.twentyzhang.bluewhale.dto.MyCouponResponse;
 import com.twentyzhang.bluewhale.service.CouponService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -20,13 +22,12 @@ public class CouponController {
 
     // 需要鉴权 仅 Customer
     @GetMapping("/mine")
-    public ApiResponse<List<MyCouponResponse>> getMyCoupons(
+    public Result<List<MyCouponResponse>> getMyCoupons(
             @RequestParam(required = false) String status) {
-        return ApiResponse.success(couponService.getMyCoupons(getCurrentUserId(), status));
+        return Result.success(couponService.getMyCoupons(currentUser().userId(), status));
     }
 
-    private Long getCurrentUserId() {
-        // TODO: 从 JWT Token 解析 userId
-        return null;
+    private AuthUser currentUser() {
+        return (AuthUser) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
     }
 }

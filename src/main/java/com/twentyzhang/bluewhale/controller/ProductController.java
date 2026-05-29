@@ -1,7 +1,7 @@
 package com.twentyzhang.bluewhale.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.twentyzhang.bluewhale.dto.ApiResponse;
+import com.twentyzhang.bluewhale.common.Result;
 import com.twentyzhang.bluewhale.dto.ProductDetailResponse;
 import com.twentyzhang.bluewhale.dto.ProductListItemResponse;
 import com.twentyzhang.bluewhale.service.ProductService;
@@ -22,19 +22,19 @@ public class ProductController {
     private final ProductService productService;
 
     @GetMapping
-    public ApiResponse<IPage<ProductListItemResponse>> searchProducts(
+    public Result<IPage<ProductListItemResponse>> searchProducts(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) BigDecimal minPrice,
             @RequestParam(required = false) BigDecimal maxPrice,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
-        return ApiResponse.success(
+        return Result.success(
                 productService.searchProducts(keyword, categoryId, minPrice, maxPrice, page, size));
     }
 
     @GetMapping("/{productId}")
-    public ApiResponse<ProductDetailResponse> getProductById(@PathVariable Long productId) {
-        return ApiResponse.success(productService.getProductById(productId));
+    public Result<ProductDetailResponse> getProductById(@PathVariable Long productId) {
+        return Result.success(productService.getProductById(productId));
     }
 }

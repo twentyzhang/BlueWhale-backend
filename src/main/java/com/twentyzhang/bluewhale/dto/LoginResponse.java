@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 public class LoginResponse {
 
     private String token;
+    private String refreshToken;
     private Long userId;
     private String nickname;
     /** CUSTOMER / STAFF / ADMIN */

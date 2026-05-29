@@ -1,7 +1,8 @@
 package com.twentyzhang.bluewhale.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.twentyzhang.bluewhale.dto.ApiResponse;
+import com.twentyzhang.bluewhale.common.AuthUser;
+import com.twentyzhang.bluewhale.common.Result;
 import com.twentyzhang.bluewhale.dto.CancelOrderResponse;
 import com.twentyzhang.bluewhale.dto.ConfirmOrderResponse;
 import com.twentyzhang.bluewhale.dto.CreateOrderRequest;
@@ -14,6 +15,7 @@ import com.twentyzhang.bluewhale.dto.RefundResponse;
 import com.twentyzhang.bluewhale.service.OrderService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -31,57 +33,52 @@ public class OrderController {
 
     // 需要鉴权 仅 Customer
     @PostMapping
-    public ApiResponse<CreateOrderResponse> createOrder(@RequestBody @Valid CreateOrderRequest request) {
-        return ApiResponse.success(orderService.createOrder(getCurrentUserId(), request));
+    public Result<CreateOrderResponse> createOrder(@RequestBody @Valid CreateOrderRequest request) {
+        return Result.success(orderService.createOrder(currentUser().userId(), request));
     }
 
     // 需要鉴权 仅 Customer
     @GetMapping
-    public ApiResponse<IPage<OrderListItemResponse>> getMyOrders(
+    public Result<IPage<OrderListItemResponse>> getMyOrders(
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
-        return ApiResponse.success(orderService.getMyOrders(getCurrentUserId(), status, page, size));
+        return Result.success(orderService.getMyOrders(currentUser().userId(), status, page, size));
     }
 
     // 需要鉴权（Customer 查自己的，Staff 查本店的）
     @GetMapping("/{orderId}")
-    public ApiResponse<OrderDetailResponse> getOrderDetail(@PathVariable Long orderId) {
-        return ApiResponse.success(orderService.getOrderDetail(getCurrentUserId(), getCurrentUserRole(), orderId));
+    public Result<OrderDetailResponse> getOrderDetail(@PathVariable Long orderId) {
+        AuthUser user = currentUser();
+        return Result.success(orderService.getOrderDetail(user.userId(), user.role(), orderId));
     }
 
     // 需要鉴权 仅 Customer（本人订单）
     @PostMapping("/{orderId}/pay")
-    public ApiResponse<PayOrderResponse> payOrder(@PathVariable Long orderId) {
-        return ApiResponse.success(orderService.payOrder(getCurrentUserId(), orderId));
+    public Result<PayOrderResponse> payOrder(@PathVariable Long orderId) {
+        return Result.success(orderService.payOrder(currentUser().userId(), orderId));
     }
 
     // 需要鉴权 仅 Customer（本人订单）
     @PostMapping("/{orderId}/cancel")
-    public ApiResponse<CancelOrderResponse> cancelOrder(@PathVariable Long orderId) {
-        return ApiResponse.success(orderService.cancelOrder(getCurrentUserId(), orderId));
+    public Result<CancelOrderResponse> cancelOrder(@PathVariable Long orderId) {
+        return Result.success(orderService.cancelOrder(currentUser().userId(), orderId));
     }
 
     // 需要鉴权 仅 Customer（本人订单）
     @PostMapping("/{orderId}/confirm")
-    public ApiResponse<ConfirmOrderResponse> confirmReceived(@PathVariable Long orderId) {
-        return ApiResponse.success(orderService.confirmReceived(getCurrentUserId(), orderId));
+    public Result<ConfirmOrderResponse> confirmReceived(@PathVariable Long orderId) {
+        return Result.success(orderService.confirmReceived(currentUser().userId(), orderId));
     }
 
     // 需要鉴权 仅 Customer（本人订单）
     @PostMapping("/{orderId}/refund")
-    public ApiResponse<RefundResponse> refundOrder(@PathVariable Long orderId,
-                                                    @RequestBody @Valid RefundRequest request) {
-        return ApiResponse.success(orderService.refundOrder(getCurrentUserId(), orderId, request));
+    public Result<RefundResponse> refundOrder(@PathVariable Long orderId,
+                                               @RequestBody @Valid RefundRequest request) {
+        return Result.success(orderService.refundOrder(currentUser().userId(), orderId, request));
     }
 
-    private Long getCurrentUserId() {
-        // TODO: 从 JWT Token 解析 userId
-        return null;
-    }
-
-    private String getCurrentUserRole() {
-        // TODO: 从 JWT Token 解析 role
-        return null;
+    private AuthUser currentUser() {
+        return (AuthUser) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
     }
 }

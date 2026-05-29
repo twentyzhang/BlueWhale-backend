@@ -1,6 +1,6 @@
 package com.twentyzhang.bluewhale.controller;
 
-import com.twentyzhang.bluewhale.dto.ApiResponse;
+import com.twentyzhang.bluewhale.common.Result;
 import com.twentyzhang.bluewhale.dto.CategoryNodeResponse;
 import com.twentyzhang.bluewhale.dto.CreateCategoryRequest;
 import com.twentyzhang.bluewhale.dto.IdResponse;
@@ -25,20 +25,20 @@ public class CategoryController {
     private final ProductCategoryService productCategoryService;
 
     @GetMapping
-    public ApiResponse<List<CategoryNodeResponse>> getCategoryTree() {
-        return ApiResponse.success(productCategoryService.getCategoryTree());
+    public Result<List<CategoryNodeResponse>> getCategoryTree() {
+        return Result.success(productCategoryService.getCategoryTree());
     }
 
     // 需要鉴权 仅 Staff 或 Admin
     @PostMapping
-    public ApiResponse<IdResponse> createCategory(@RequestBody @Valid CreateCategoryRequest request) {
-        return ApiResponse.success(IdResponse.builder().id(productCategoryService.createCategory(request)).build());
+    public Result<IdResponse> createCategory(@RequestBody @Valid CreateCategoryRequest request) {
+        return Result.success(IdResponse.builder().id(productCategoryService.createCategory(request)).build());
     }
 
     // 需要鉴权 仅 Admin
     @DeleteMapping("/{categoryId}")
-    public ApiResponse<Void> deleteCategory(@PathVariable Long categoryId) {
+    public Result<Void> deleteCategory(@PathVariable Long categoryId) {
         productCategoryService.deleteCategory(categoryId);
-        return ApiResponse.success();
+        return Result.success();
     }
 }

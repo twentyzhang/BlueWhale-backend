@@ -1,6 +1,7 @@
 package com.twentyzhang.bluewhale.controller;
 
-import com.twentyzhang.bluewhale.dto.ApiResponse;
+import com.twentyzhang.bluewhale.common.AuthUser;
+import com.twentyzhang.bluewhale.common.Result;
 import com.twentyzhang.bluewhale.dto.CreateAddressRequest;
 import com.twentyzhang.bluewhale.dto.IdResponse;
 import com.twentyzhang.bluewhale.dto.UpdateAddressRequest;
@@ -8,6 +9,7 @@ import com.twentyzhang.bluewhale.dto.UserAddressResponse;
 import com.twentyzhang.bluewhale.service.AddressService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -28,33 +30,32 @@ public class AddressController {
 
     // 需要鉴权 仅 Customer
     @GetMapping
-    public ApiResponse<List<UserAddressResponse>> getAddresses() {
-        return ApiResponse.success(addressService.getAddresses(getCurrentUserId()));
+    public Result<List<UserAddressResponse>> getAddresses() {
+        return Result.success(addressService.getAddresses(currentUser().userId()));
     }
 
     // 需要鉴权 仅 Customer
     @PostMapping
-    public ApiResponse<IdResponse> addAddress(@RequestBody @Valid CreateAddressRequest request) {
-        return ApiResponse.success(IdResponse.builder().id(addressService.addAddress(getCurrentUserId(), request)).build());
+    public Result<IdResponse> addAddress(@RequestBody @Valid CreateAddressRequest request) {
+        return Result.success(IdResponse.builder().id(addressService.addAddress(currentUser().userId(), request)).build());
     }
 
     // 需要鉴权 仅 Customer（本人地址）
     @PutMapping("/{addressId}")
-    public ApiResponse<Void> updateAddress(@PathVariable Long addressId,
-                                            @RequestBody UpdateAddressRequest request) {
-        addressService.updateAddress(getCurrentUserId(), addressId, request);
-        return ApiResponse.success();
+    public Result<Void> updateAddress(@PathVariable Long addressId,
+                                      @RequestBody UpdateAddressRequest request) {
+        addressService.updateAddress(currentUser().userId(), addressId, request);
+        return Result.success();
     }
 
     // 需要鉴权 仅 Customer（本人地址）
     @DeleteMapping("/{addressId}")
-    public ApiResponse<Void> deleteAddress(@PathVariable Long addressId) {
-        addressService.deleteAddress(getCurrentUserId(), addressId);
-        return ApiResponse.success();
+    public Result<Void> deleteAddress(@PathVariable Long addressId) {
+        addressService.deleteAddress(currentUser().userId(), addressId);
+        return Result.success();
     }
 
-    private Long getCurrentUserId() {
-        // TODO: 从 JWT Token 解析 userId
-        return null;
+    private AuthUser currentUser() {
+        return (AuthUser) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
     }
 }
