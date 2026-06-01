@@ -15,4 +15,6 @@ public class StoreListItemResponse {
     private String name;
     private String logo;
     private Integer productCount;
+    /** 仅 Admin 接口填充，公开接口为 null */
+    private String creditCode;
 }

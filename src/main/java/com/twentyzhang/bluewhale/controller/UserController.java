@@ -6,9 +6,9 @@ import com.twentyzhang.bluewhale.dto.ChangePasswordRequest;
 import com.twentyzhang.bluewhale.dto.UpdateProfileRequest;
 import com.twentyzhang.bluewhale.dto.UserInfoResponse;
 import com.twentyzhang.bluewhale.service.UserService;
+import com.twentyzhang.bluewhale.util.AuthUtil;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -40,6 +40,6 @@ public class UserController {
     }
 
     private AuthUser currentUser() {
-        return (AuthUser) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        return AuthUtil.getCurrentUser();
     }
 }
