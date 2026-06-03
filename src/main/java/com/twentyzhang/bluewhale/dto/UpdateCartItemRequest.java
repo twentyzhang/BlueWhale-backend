@@ -8,6 +8,6 @@ import lombok.Data;
 public class UpdateCartItemRequest {
 
     @NotNull(message = "数量不能为空")
-    @Min(value = 1, message = "数量至少为 1")
+    @Min(value = 0, message = "数量不能为负数")
     private Integer quantity;
 }

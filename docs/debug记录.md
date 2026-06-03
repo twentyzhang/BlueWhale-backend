@@ -37,9 +37,31 @@ verify(userMapper).insert((User) captor.capture());
 
 **受影响范围**
 
-MyBatis Plus 3.5.9 同时为 `insert` 和 `updateById` 增加了集合重载，测试中凡涉及这两个方法的
-`when` / `verify` 调用均需用 `anyXxx()` 辅助方法消歧（见"补充"部分）。
-`selectById`、`deleteById` 目前仅有一个重载，暂不受影响。
+MyBatis Plus 3.5.9 为多个方法新增了重载：
+- `insert(T)` + `insert(Collection<T>)` — 已知
+- `updateById(T)` + `updateById(Collection<T>)` — 已知
+- `deleteById(Serializable)` + `deleteById(T)` — 同版本新增，`Long` 同时满足 `Serializable` 和 `Object`（T 擦除后），导致歧义
+
+对 `deleteById(Long id)` 调用，加 `(Serializable)` 强制转型选择正确重载：
+
+```java
+// ❌ 歧义：Long 同时匹配 deleteById(Serializable) 和 deleteById(T→Object)
+when(mapper.deleteById(5L)).thenReturn(1);
+verify(mapper).deleteById(5L);
+
+// ✅ 显式转型
+when(mapper.deleteById((Serializable) 5L)).thenReturn(1);
+verify(mapper).deleteById((Serializable) 5L);
+verify(mapper, never()).deleteById((Serializable) any());
+```
+
+`selectById`、`selectCount`、`selectList` 目前仅有一个重载，不受影响。
+
+**补充：`doAnswer().when().method()` 链中 `anyXxx()` 辅助方法有时仍报歧义**
+
+`when(mock.method(anyXxx())).thenAnswer(...)` 形式（先调用 mock 方法再传给 when）
+编译期类型推断更稳定，建议在需要 `doAnswer` 模拟 ID 回写时用此形式代替
+`doAnswer().when(mock).method(anyXxx())`。
 
 **补充：`(T) any()` 转型在部分 IDE 版本仍报歧义**
 
@@ -136,3 +158,92 @@ void setUp() {
 单元测试只验证业务逻辑，不测试事务行为。
 事务行为需通过集成测试（`@SpringBootTest` + 真实数据库）验证。
 目前项目中此类集成测试尚未编写。
+
+---
+
+## 6. 单元测试 | `LambdaUpdateWrapper.set()` 和 `getSqlSegment()` 需要 lambda cache
+
+**现象**
+
+```
+MybatisPlusException: can not find lambda cache for this entity
+    at AbstractLambdaWrapper.tryInitCache
+```
+
+出现在两种场景：
+1. 业务代码调用 `LambdaUpdateWrapper.set(UserAddress::getIsDefault, 0)` — `.set()` **立即**（非懒加载）解析 lambda 方法引用为列名
+2. 测试代码调用 `captor.getValue().getSqlSegment()` — 强制渲染 `LambdaQueryWrapper` 的 SQL 片段
+
+**原因**
+
+MyBatis Plus 的 `LambdaWrapper` 将方法引用（`Entity::getField`）解析为 DB 列名时，依赖 `TableInfoHelper` 在 Spring 启动时注册的 entity metadata（lambda cache）。纯 Mockito 单元测试没有 Spring 上下文，lambda cache 未初始化。
+
+**受影响场景**
+
+| 操作 | 是否触发解析 |
+|---|---|
+| 将 `LambdaQueryWrapper` 传给 mocked 方法 | **不触发**（Mockito 忽略参数内容） |
+| 调用 `wrapper.getSqlSegment()` | **触发**（渲染完整 SQL） |
+| `LambdaUpdateWrapper.set(Ref, val)` | **触发**（立即追加 SET 子句） |
+| `LambdaQueryWrapper.eq/orderByDesc` 等 | 不触发（条件仅暂存，渲染时才解析） |
+
+**解决方案**
+
+在需要经受单元测试的 Service 方法中，将 `LambdaUpdateWrapper` 和需要被 `getSqlSegment()` 检查的 `LambdaQueryWrapper` 替换为字符串列名版本：
+
+```java
+// ❌ LambdaUpdateWrapper.set() 立即解析，无 Spring 上下文时报错
+new LambdaUpdateWrapper<UserAddress>().set(UserAddress::getIsDefault, 0)
+
+// ✅ UpdateWrapper 使用字符串列名，不依赖 lambda cache
+new UpdateWrapper<UserAddress>().set("is_default", 0)
+```
+
+```java
+// ❌ getSqlSegment() 渲染时解析 ORDER BY 列名，无 Spring 上下文时报错
+new LambdaQueryWrapper<UserAddress>().orderByDesc(UserAddress::getIsDefault)
+
+// ✅ QueryWrapper 使用字符串列名
+new QueryWrapper<UserAddress>().orderByDesc("is_default")
+```
+
+**已修复处**：`AddressServiceImpl.getAddresses`（改用 `QueryWrapper`）、`clearDefaultForUser`（改用 `UpdateWrapper`）。
+
+---
+
+## 5. 单元测试 | `getOne()` 调用 `selectOne(Wrapper, boolean)` 两参数重载
+
+**现象**
+
+Mockito strict stubs 报错：
+
+```
+PotentialStubbingProblem:
+ - this invocation of 'selectOne' method:
+     cartMapper.selectOne(LambdaQueryWrapper@..., true);
+     -> at AbstractRepository.getOne(AbstractRepository.java:78)
+ - has following stubbing(s) with different arguments:
+     1. cartMapper.selectOne(null);
+```
+
+**原因**
+
+MyBatis Plus **3.5.9** 的 `AbstractRepository.getOne(Wrapper)` 实现调用的是 `selectOne(Wrapper, boolean throwEx)`（两参数重载），而不是旧的单参数 `selectOne(Wrapper)`。Mockito strict stubs 将两者视为不同的方法调用，导致签名不匹配失败。
+
+**注意**：`selectById` 仍是单参数，不受影响。受影响的是通过 `ServiceImpl.getOne()` 路径的调用。
+
+**解决方案**
+
+Stub `cartMapper.selectOne` 时使用两个参数匹配器：
+
+```java
+// ❌ 单参数 stub 与实际调用签名不符
+when(cartMapper.selectOne(any())).thenReturn(cart);
+
+// ✅ 匹配两参数重载
+when(cartMapper.selectOne(any(), anyBoolean())).thenReturn(cart);
+```
+
+**受影响范围**
+
+所有 `XxxServiceImpl` 中通过继承的 `getOne(wrapper)` 方法查询主实体的测试（即 `ServiceImpl<XxxMapper, T>` 的基础 mapper）。直接调用 `xyzMapper.selectOne(wrapper)` 的场景（不经过 `ServiceImpl.getOne`）仍使用单参数，不需要改动。
