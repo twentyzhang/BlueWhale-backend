@@ -96,7 +96,6 @@ class ProductServiceTest extends BaseServiceTest {
         void withKeyword_wrapperContainsLike() {
             when(storeMapper.selectById(1L)).thenReturn(store(1L, "南鲸旗舰店"));
             when(productMapper.selectPage(any(), any())).thenReturn(page(List.of(), 0L));
-            when(productCategoryMapper.selectBatchIds(any())).thenReturn(List.of());
 
             productService.getProductsByStore(1L, "醋", null, null, null, 1, 10);
 
@@ -114,7 +113,6 @@ class ProductServiceTest extends BaseServiceTest {
         void withPriceRange_wrapperContainsPriceConditions() {
             when(storeMapper.selectById(1L)).thenReturn(store(1L, "南鲸旗舰店"));
             when(productMapper.selectPage(any(), any())).thenReturn(page(List.of(), 0L));
-            when(productCategoryMapper.selectBatchIds(any())).thenReturn(List.of());
 
             productService.getProductsByStore(1L, null, null,
                     new BigDecimal("5.00"), new BigDecimal("50.00"), 1, 10);
@@ -144,7 +142,6 @@ class ProductServiceTest extends BaseServiceTest {
             when(productMapper.selectById(101L)).thenReturn(p);
             when(storeMapper.selectById(1L)).thenReturn(store(1L, "南鲸旗舰店"));
             when(productCategoryMapper.selectById(2L)).thenReturn(category(2L, "调味品"));
-            when(productCategoryMapper.selectById(null)).thenReturn(null); // 无父分类
             // 两条评论：4 分和 5 分
             Review r1 = Review.builder().rating(4).productId(101L).build();
             Review r2 = Review.builder().rating(5).productId(101L).build();
@@ -211,7 +208,6 @@ class ProductServiceTest extends BaseServiceTest {
         @DisplayName("keyword 和 categoryId 均为空时返回全部商品（不抛异常）")
         void noFilters_returnsAll() {
             when(productMapper.selectPage(any(), any())).thenReturn(page(List.of(), 0L));
-            when(productCategoryMapper.selectBatchIds(any())).thenReturn(List.of());
 
             assertDoesNotThrow(() ->
                     productService.searchProducts(null, null, null, null, 1, 10));

@@ -1,9 +1,12 @@
 package com.twentyzhang.bluewhale.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.twentyzhang.bluewhale.common.Result;
 import com.twentyzhang.bluewhale.dto.ChangePasswordRequest;
 import com.twentyzhang.bluewhale.dto.LoginRequest;
 import com.twentyzhang.bluewhale.dto.LoginResponse;
+import com.twentyzhang.bluewhale.dto.RefreshTokenRequest;
+import com.twentyzhang.bluewhale.dto.RefreshTokenResponse;
 import com.twentyzhang.bluewhale.dto.RegisterRequest;
 import com.twentyzhang.bluewhale.dto.UpdateProfileRequest;
 import com.twentyzhang.bluewhale.dto.UserInfoResponse;
@@ -61,6 +64,28 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 .userId(user.getId())
                 .nickname(user.getNickname())
                 .role(user.getRole())
+                .build();
+    }
+
+    @Override
+    public RefreshTokenResponse refreshToken(RefreshTokenRequest request) {
+        String storedToken = redisUtil.get(REFRESH_TOKEN_PREFIX + request.getUserId());
+        if (storedToken == null || !storedToken.equals(request.getRefreshToken())) {
+            // refreshToken 不存在（已过期/已登出）或与服务端记录不一致
+            throw new BusinessException(Result.CODE_UNAUTHORIZED, "refreshToken 无效或已过期，请重新登录");
+        }
+        User user = getById(request.getUserId());
+        if (user == null) {
+            throw new BusinessException(Result.CODE_UNAUTHORIZED, "用户不存在，请重新登录");
+        }
+        String accessToken     = jwtUtil.generateToken(user.getId(), user.getRole(), user.getStoreId());
+        String newRefreshToken = UUID.randomUUID().toString().replace("-", "");
+        // 轮换 refreshToken 并重置 7 天有效期，旧 token 立即失效
+        redisUtil.setWithExpire(REFRESH_TOKEN_PREFIX + user.getId(), newRefreshToken,
+                REFRESH_TOKEN_DAYS, TimeUnit.DAYS);
+        return RefreshTokenResponse.builder()
+                .token(accessToken)
+                .refreshToken(newRefreshToken)
                 .build();
     }
 

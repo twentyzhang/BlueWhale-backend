@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.twentyzhang.bluewhale.dto.ChangePasswordRequest;
 import com.twentyzhang.bluewhale.dto.LoginRequest;
 import com.twentyzhang.bluewhale.dto.LoginResponse;
+import com.twentyzhang.bluewhale.dto.RefreshTokenRequest;
+import com.twentyzhang.bluewhale.dto.RefreshTokenResponse;
 import com.twentyzhang.bluewhale.dto.RegisterRequest;
 import com.twentyzhang.bluewhale.dto.UpdateProfileRequest;
 import com.twentyzhang.bluewhale.dto.UserInfoResponse;
@@ -22,6 +24,13 @@ public interface UserService extends IService<User> {
      * 对应 POST /api/auth/login
      */
     LoginResponse login(LoginRequest request);
+
+    /**
+     * 用 refreshToken 换取新的 accessToken。
+     * 校验 refreshToken 与 Redis 中保存的一致后，签发新 accessToken 并轮换 refreshToken（重置 7 天有效期）。
+     * 对应 POST /api/auth/refresh
+     */
+    RefreshTokenResponse refreshToken(RefreshTokenRequest request);
 
     /**
      * 获取当前登录用户信息（手机号脱敏）。

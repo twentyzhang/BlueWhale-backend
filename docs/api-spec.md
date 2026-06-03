@@ -113,11 +113,47 @@ null
 ```json
 {
   "token": "eyJhbGciOiJIUzI1NiJ9...",
+  "refreshToken": "bea4241b3def45a7aa2ed7cd5a74f10b",
   "userId": 1,
   "nickname": "张三",
   "role": "CUSTOMER"
 }
 ```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| token | string | accessToken，有效期 24 小时，后续请求放入 `Authorization: Bearer <token>` |
+| refreshToken | string | 刷新令牌，有效期 7 天（存于 Redis）。accessToken 过期后用它换新 token |
+
+---
+
+### POST /api/auth/refresh — 刷新 Token
+
+**权限：** 无需登录（凭 refreshToken）
+
+**请求体：**
+```json
+{
+  "userId": 1,
+  "refreshToken": "bea4241b3def45a7aa2ed7cd5a74f10b"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| userId | long | 是 | 登录时返回的 userId |
+| refreshToken | string | 是 | 登录（或上次刷新）时返回的 refreshToken |
+
+**响应 data：**
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiJ9...",
+  "refreshToken": "73e5e2007f8b44058472e391b472b379"
+}
+```
+
+> **刷新即轮换**：每次刷新会签发新的 accessToken **并轮换 refreshToken**（旧 refreshToken 立即失效，新的重置 7 天有效期）。前端必须用响应中的新 `refreshToken` 覆盖本地存储。
+> refreshToken 无效 / 不匹配 / 已过期 → 返回 `401`，前端应跳转重新登录。
 
 ---
 
@@ -1092,6 +1128,7 @@ null
 |---|---|---|---|
 | **用户** | POST | `/api/auth/register` | 无需登录 |
 | | POST | `/api/auth/login` | 无需登录 |
+| | POST | `/api/auth/refresh` | 无需登录（凭 refreshToken） |
 | | GET | `/api/users/me` | 需要登录 |
 | | PUT | `/api/users/me` | 需要登录 |
 | | PUT | `/api/users/me/password` | 需要登录 |
