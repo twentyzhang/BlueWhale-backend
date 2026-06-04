@@ -1,7 +1,38 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(New-Item *)"
+      "PowerShell(New-Item *)",
+      "Bash(Remove-Item *)",
+      "Bash(git add *)",
+      "Bash(git rm *)",
+      "Bash(git commit -m ' *)",
+      "Bash(mvn test *)",
+      "Bash(mvn compile *)",
+      "Bash(mvn -q compile)",
+      "Bash(mvn -q test -Dtest=ReviewServiceTest,ReportServiceTest)",
+      "Bash(mvn clean *)",
+      "Bash(powershell *)",
+      "Bash(mvn spring-boot:run *)",
+      "Bash(break)",
+      "Bash(curl -s -o - -w \"\\\\n[HTTP %{http_code}]\\\\n\" \"http://localhost:8080/api/products?page=1&size=2\")",
+      "Bash(curl -s -o - -w \"\\\\n[HTTP %{http_code}]\\\\n\" \"http://localhost:8080/api/users/me\")",
+      "Bash(curl -s -o - -w \"\\\\n[HTTP %{http_code}]\\\\n\" \"http://localhost:8080/api/products\")",
+      "Bash(curl -s -i \"http://localhost:8080/api/products\")",
+      "Bash(curl -s -i -X POST \"http://localhost:8080/api/auth/login\" -H \"Content-Type: application/json\" -d '{\"phone\":\"x\",\"password\":\"y\"}')",
+      "Bash(curl -s --noproxy '*' -o - -w \"\\\\n[HTTP %{http_code}]\\\\n\" \"http://localhost:8080/api/products?size=2\")",
+      "Bash(curl -s --noproxy '*' -o - -w \"\\\\n[HTTP %{http_code}]\\\\n\" \"http://localhost:8080/api/users/me\")",
+      "Bash(curl -s --noproxy '*' -o - -w \"\\\\n[HTTP %{http_code}]\\\\n\" -X POST \"http://localhost:8080/api/auth/login\" -H \"Content-Type: application/json\" -d '{\"phone\":\"13800138000\",\"password\":\"wrong\"}')",
+      "PowerShell($p = \\(Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue\\).OwningProcess; if \\($p\\) { $p | ForEach-Object { Stop-Process -Id $_ -Force }; \"killed pid\\(s\\): $\\($p -join ','\\)\" } else { 'nothing on 8080' })",
+      "Bash(awk -F'[.#]' '{print $0}')",
+      "PowerShell($p = \\(Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue\\).OwningProcess; if \\($p\\) { $p | ForEach-Object { Stop-Process -Id $_ -Force }; \"stopped $\\($p -join ','\\)\" } else { 'nothing on 8080' })",
+      "Bash(git commit -m 'feat: 评论/报表模块实现，新增 Token 刷新接口，开放商品浏览接口' -m '- 评论\\(ReviewService\\)/报表\\(ReportService\\)模块业务逻辑实现及单元测试 *)",
+      "Bash(mvn -q test -Dtest=HashGen)",
+      "Bash(mvn -q test -Dtest=HashCheck)",
+      "Bash(mvn -q -DskipTests dependency:resolve)",
+      "Bash(mvn -q -o dependency:resolve)",
+      "Bash(mvn -o -q dependency:get -Dartifact=org.flywaydb:flyway-mysql:LATEST)",
+      "Bash(mvn -q -o compile)",
+      "Bash(echo \"EXIT=$?\")"
     ]
   }
 }

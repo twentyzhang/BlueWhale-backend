@@ -1,7 +1,11 @@
 -- ============================================================
--- 南鲸商城 数据库建表脚本
--- 数据库: bluewhale
--- 字符集: utf8mb4
+-- Flyway 迁移 V1：初始建表脚本（DDL）
+-- 南鲸商城 数据库 bluewhale / utf8mb4
+--
+-- 【重要】本文件是已发布的版本化迁移，一旦被任何环境执行过就不可再修改
+--   （Flyway 会校验 checksum，改动已应用的脚本会导致启动报错）。
+--   后续任何结构变更请新增 V2__xxx.sql / V3__xxx.sql，只写增量 DDL。
+--
 -- 说明:
 --   1. 所有表使用 deleted 字段做逻辑删除（0正常 1已删除），与 MyBatis Plus 配置保持一致
 --   2. `order` 为 MySQL 保留字，表名使用 `orders`
@@ -316,18 +320,7 @@ SET FOREIGN_KEY_CHECKS = 1;
 
 
 -- ============================================================
--- 初始化数据：创建默认管理员账号
--- 密码明文: Admin@123456（BCrypt 加密后存储，此处为示例占位）
--- 实际部署时应通过初始化脚本或首次启动程序生成真实 BCrypt 哈希
+-- 本脚本只负责建表（DDL）。
+-- 初始化数据（管理员/店员/顾客账号、测试商店、分类、商品）由可重复迁移
+-- R__seed_data.sql 维护，Flyway 会在所有版本化迁移之后自动执行它。
 -- ============================================================
-INSERT INTO `store` (`name`, `credit_code`, `logo`)
-VALUES ('平台自营', '00000000000000000A', NULL);
-
-INSERT INTO `user` (`phone`, `password`, `nickname`, `role`, `store_id`)
-VALUES (
-    '10000000000',
-    '$2a$10$placeholderBCryptHashReplaceBeforeDeployment000000',
-    '超级管理员',
-    'ADMIN',
-    NULL
-);

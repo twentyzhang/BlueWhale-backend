@@ -366,11 +366,17 @@ PENDING_PAYMENT --pay--> PAID --ship(Staff)--> SHIPPED --confirm--> COMPLETED --
 
 ### 6.2 数据库初始化
 
-1. 创建数据库：`CREATE DATABASE bluewhale DEFAULT CHARSET utf8mb4;`
-2. 执行建表脚本 `docs/schema.sql`（含 12 张表 + 一条初始数据）。
-3. 确保 `application.yml` 的数据源指向该库（默认端口 3305）。
+数据库结构与种子数据由 **Flyway 自动迁移**管理，无需再手动执行 SQL：
 
+1. 创建一个**空库**：`CREATE DATABASE bluewhale DEFAULT CHARSET utf8mb4;`
+2. 确保 `application.yml` 的数据源指向该库（默认端口 3305）。
+3. 启动应用——Flyway 会自动执行 `src/main/resources/db/migration/` 下的脚本：
+   - `V1__init_schema.sql`：建 12 张表；
+   - `R__seed_data.sql`：灌入测试商店 / 账号 / 分类 / 商品。
+
+> 迁移脚本是单一可执行来源，原 `docs/schema.sql` / `docs/data.sql` 已迁入上述目录。
 > 表结构使用逻辑删除（`deleted` 字段，0 正常 / 1 删除），MyBatis Plus 自动过滤。
+> 详见 [数据库迁移指南.md](./数据库迁移指南.md)。
 
 ### 6.3 启动后端服务
 
@@ -390,6 +396,20 @@ mvn test
 ```
 
 ### 6.4 测试账号说明
+
+#### 预置种子账号（Flyway 启动时自动灌入，可直接登录）
+
+迁移脚本 `R__seed_data.sql` 会写入下列账号（密码为真实 BCrypt 哈希，可直接登录）及一个测试商店「南鲸旗舰店」、两级商品分类和若干测试商品：
+
+| 角色     | 手机号        | 明文密码          | 昵称       | 备注                 |
+| -------- | ------------- | ----------------- | ---------- | -------------------- |
+| ADMIN    | `13000000000` | `Admin@123456`    | 超级管理员 | —                    |
+| STAFF    | `13100000001` | `Staff@123456`    | 测试店员   | 已绑定「南鲸旗舰店」 |
+| CUSTOMER | `13200000002` | `Customer@123456` | 测试顾客   | —                    |
+
+> 种子数据放在 Flyway 可重复迁移 `R__seed_data.sql` 中，脚本开头会先清空相关表再插入，启动时自动应用；需要改种子时直接改该文件并重启即可，无需手动跑 SQL。
+
+如需手动获取额外账号，可按下面三种方式：
 
 注册接口**只允许 `CUSTOMER` / `STAFF`**（ADMIN 不开放注册）。三种角色的获取方式：
 
@@ -415,7 +435,9 @@ curl -X POST http://localhost:8080/api/auth/register \
 -- 先用接口注册 13700137001 / Abc123456，再执行：
 UPDATE `user` SET role = 'ADMIN', store_id = NULL WHERE phone = '13700137001';
 ```
-> `schema.sql` 自带一条 ADMIN 种子账号（手机号 `10000000000`），但其密码是**占位哈希、无法登录**，仅作占位。请用上面的方式生成可登录的 ADMIN。
+> 预置 ADMIN（手机号 `13000000000`）由 `R__seed_data.sql` 写入，密码为真实哈希 `Admin@123456`，可直接登录，无需再手动改库。
+>
+> 注：ADMIN 手机号特意用 `13000000000`（而非早期占位的 `10000000000`），因为登录/注册接口对 `phone` 强制 `^1[3-9]\d{9}$` 格式校验，`10` 开头的号码会被 `@Valid` 直接拒绝、根本进不到登录逻辑。
 
 ### 6.5 联调建议顺序
 

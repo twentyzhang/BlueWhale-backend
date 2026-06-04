@@ -58,6 +58,17 @@
 			<scope>runtime</scope>
 		</dependency>
 
+		<!-- Flyway 数据库迁移（版本由 Spring Boot 3.4 BOM 管理） -->
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-core</artifactId>
+		</dependency>
+		<!-- MySQL 8 需要独立的 flyway-mysql 模块（Flyway 10+ 起按数据库拆分） -->
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-mysql</artifactId>
+		</dependency>
+
 		<!-- JWT -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
