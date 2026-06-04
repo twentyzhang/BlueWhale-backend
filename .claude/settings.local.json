@@ -32,7 +32,8 @@
       "Bash(mvn -q -o dependency:resolve)",
       "Bash(mvn -o -q dependency:get -Dartifact=org.flywaydb:flyway-mysql:LATEST)",
       "Bash(mvn -q -o compile)",
-      "Bash(echo \"EXIT=$?\")"
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(git commit *)"
     ]
   }
 }
