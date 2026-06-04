@@ -14,11 +14,15 @@ import com.twentyzhang.bluewhale.entity.Product;
 import com.twentyzhang.bluewhale.entity.Store;
 import com.twentyzhang.bluewhale.entity.User;
 import com.twentyzhang.bluewhale.exception.BusinessException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.twentyzhang.bluewhale.mapper.ProductMapper;
 import com.twentyzhang.bluewhale.mapper.StoreMapper;
 import com.twentyzhang.bluewhale.mapper.UserMapper;
 import com.twentyzhang.bluewhale.service.StoreService;
 import com.twentyzhang.bluewhale.util.AuthUtil;
+import com.twentyzhang.bluewhale.util.CacheKeys;
+import com.twentyzhang.bluewhale.util.CacheUtil;
+import com.twentyzhang.bluewhale.util.RedisUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,27 +33,38 @@ public class StoreServiceImpl extends ServiceImpl<StoreMapper, Store> implements
 
     private final ProductMapper productMapper;
     private final UserMapper userMapper;
+    private final CacheUtil cacheUtil;
+    private final RedisUtil redisUtil;
 
     // ── 1. listStores ────────────────────────────────────────────────────────
     @Override
+    @SuppressWarnings("unchecked")
     public IPage<StoreListItemResponse> getStoreList(int page, int size) {
-        IPage<Store> storePage = this.page(new Page<>(page, size));
-        return storePage.convert(store -> toListItem(store, false));
+        return cacheUtil.getOrLoad(CacheKeys.storeList(page, size),
+                CacheKeys.STORE_LIST_TTL, CacheKeys.STORE_LIST_JITTER,
+                () -> (Page<StoreListItemResponse>)
+                        this.page(new Page<Store>(page, size)).convert(s -> toListItem(s, false)),
+                new TypeReference<Page<StoreListItemResponse>>() {});
     }
 
     // ── 2. getStoreDetail ────────────────────────────────────────────────────
     @Override
     public StoreDetailResponse getStoreById(Long storeId) {
-        Store store = getById(storeId);
-        if (store == null) {
-            throw new BusinessException(Result.CODE_NOT_FOUND, "商店不存在");
-        }
-        return StoreDetailResponse.builder()
-                .id(store.getId())
-                .name(store.getName())
-                .creditCode(store.getCreditCode())
-                .logo(store.getLogo())
-                .build();
+        return cacheUtil.getOrLoad(CacheKeys.storeDetail(storeId),
+                CacheKeys.STORE_DETAIL_TTL, CacheKeys.STORE_DETAIL_JITTER,
+                () -> {
+                    Store store = getById(storeId);
+                    if (store == null) {
+                        return null; // → CacheUtil 写空值占位并抛 404
+                    }
+                    return StoreDetailResponse.builder()
+                            .id(store.getId())
+                            .name(store.getName())
+                            .creditCode(store.getCreditCode())
+                            .logo(store.getLogo())
+                            .build();
+                },
+                StoreDetailResponse.class);
     }
 
     // ── 3. createStore ───────────────────────────────────────────────────────
@@ -73,6 +88,8 @@ public class StoreServiceImpl extends ServiceImpl<StoreMapper, Store> implements
         staff.setStoreId(store.getId());
         userMapper.updateById(staff);
 
+        redisUtil.deleteByPrefix(CacheKeys.STORE_LIST_PREFIX); // 新增商店，失效商店列表缓存
+
         return CreateStoreResponse.builder()
                 .storeId(store.getId())
                 .build();
@@ -94,6 +111,10 @@ public class StoreServiceImpl extends ServiceImpl<StoreMapper, Store> implements
             store.setLogo(request.getLogo());
         }
         updateById(store);
+
+        // 商店信息变更，失效该商店详情 + 商店列表缓存
+        redisUtil.delete(CacheKeys.storeDetail(storeId));
+        redisUtil.deleteByPrefix(CacheKeys.STORE_LIST_PREFIX);
     }
 
     // ── 5. listAllStoresForAdmin ─────────────────────────────────────────────

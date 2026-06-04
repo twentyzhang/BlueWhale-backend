@@ -10,6 +10,8 @@ import com.twentyzhang.bluewhale.mapper.OrderMapper;
 import com.twentyzhang.bluewhale.mapper.StoreMapper;
 import com.twentyzhang.bluewhale.service.impl.ReportServiceImpl;
 import com.twentyzhang.bluewhale.util.AuthUtil;
+import com.twentyzhang.bluewhale.util.CacheUtil;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -26,9 +28,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @DisplayName("ReportService")
@@ -39,6 +39,7 @@ class ReportServiceTest extends BaseServiceTest {
     // StoreMapper：ReportServiceImpl 并不依赖它（storeBreakdown 由 OrderMapper.selectStoreBreakdown 的 JOIN 产出），
     // 按题目要求声明，但不参与注入，仅作占位。
     @Mock private StoreMapper storeMapper;
+    @Mock private CacheUtil cacheUtil;
 
     @InjectMocks
     private ReportServiceImpl reportService;
@@ -46,6 +47,10 @@ class ReportServiceTest extends BaseServiceTest {
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(reportService, "baseMapper", orderMapper);
+        // CacheUtil 透传：报表用 Class 重载，loader 返回非 null，直接执行回源
+        lenient().when(cacheUtil.getOrLoad(anyString(), anyLong(), anyLong(),
+                        any(Supplier.class), any(Class.class)))
+                .thenAnswer(inv -> ((Supplier<?>) inv.getArgument(3)).get());
     }
 
     // ── 聚合结果行构造辅助（Mapper 返回 List<Map<String,Object>>） ────────────────

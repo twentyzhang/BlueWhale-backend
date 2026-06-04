@@ -11,6 +11,10 @@ import com.twentyzhang.bluewhale.exception.BusinessException;
 import com.twentyzhang.bluewhale.mapper.*;
 import com.twentyzhang.bluewhale.service.impl.ProductServiceImpl;
 import com.twentyzhang.bluewhale.util.AuthUtil;
+import com.twentyzhang.bluewhale.util.CacheKeys;
+import com.twentyzhang.bluewhale.util.CacheUtil;
+import com.twentyzhang.bluewhale.util.RedisUtil;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -39,6 +43,8 @@ class ProductServiceTest extends BaseServiceTest {
     // OrderItemMapper 是 deleteProduct 的构造器依赖，用户列表中漏列，此处补充
     @Mock private OrderItemMapper orderItemMapper;
     @Mock private OrderMapper orderMapper;
+    @Mock private CacheUtil cacheUtil;
+    @Mock private RedisUtil redisUtil;
 
     @InjectMocks
     private ProductServiceImpl productService;
@@ -50,6 +56,14 @@ class ProductServiceTest extends BaseServiceTest {
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(productService, "baseMapper", productMapper);
+        // CacheUtil 透传（商品详情用 Class 重载）：执行 loader；返回 null 时按 getOrLoad 语义抛 404
+        lenient().when(cacheUtil.getOrLoad(anyString(), anyLong(), anyLong(),
+                        any(Supplier.class), any(Class.class)))
+                .thenAnswer(inv -> {
+                    Object v = ((Supplier<?>) inv.getArgument(3)).get();
+                    if (v == null) throw new BusinessException(Result.CODE_NOT_FOUND, "资源不存在");
+                    return v;
+                });
     }
 
     // ─────────────────────────────────────────────────────────────────────────

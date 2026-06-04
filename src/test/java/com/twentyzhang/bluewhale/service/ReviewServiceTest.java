@@ -19,6 +19,11 @@ import com.twentyzhang.bluewhale.mapper.ReviewMapper;
 import com.twentyzhang.bluewhale.mapper.UserMapper;
 import com.twentyzhang.bluewhale.service.impl.ReviewServiceImpl;
 import com.twentyzhang.bluewhale.util.AuthUtil;
+import com.twentyzhang.bluewhale.util.CacheKeys;
+import com.twentyzhang.bluewhale.util.CacheUtil;
+import com.twentyzhang.bluewhale.util.RedisUtil;
+import com.fasterxml.jackson.core.type.TypeReference;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -32,7 +37,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @DisplayName("ReviewService")
@@ -45,6 +50,8 @@ class ReviewServiceTest extends BaseServiceTest {
     @Mock private OrderItemMapper orderItemMapper;
     // UserMapper 虽不在题目列表中，但 getProductReviews 需用它批量查昵称，否则正常用例 NPE
     @Mock private UserMapper      userMapper;
+    @Mock private CacheUtil       cacheUtil;
+    @Mock private RedisUtil       redisUtil;
 
     @InjectMocks
     private ReviewServiceImpl reviewService;
@@ -55,6 +62,10 @@ class ReviewServiceTest extends BaseServiceTest {
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(reviewService, "baseMapper", reviewMapper);
+        // CacheUtil 透传（评论分页用 TypeReference 重载）：执行 loader 返回结果
+        lenient().when(cacheUtil.getOrLoad(anyString(), anyLong(), anyLong(),
+                        any(Supplier.class), any(TypeReference.class)))
+                .thenAnswer(inv -> ((Supplier<?>) inv.getArgument(3)).get());
     }
 
     // ── 构建辅助 ──────────────────────────────────────────────────────────────

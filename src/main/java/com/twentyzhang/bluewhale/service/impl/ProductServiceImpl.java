@@ -27,6 +27,9 @@ import com.twentyzhang.bluewhale.mapper.ReviewMapper;
 import com.twentyzhang.bluewhale.mapper.StoreMapper;
 import com.twentyzhang.bluewhale.service.ProductService;
 import com.twentyzhang.bluewhale.util.AuthUtil;
+import com.twentyzhang.bluewhale.util.CacheKeys;
+import com.twentyzhang.bluewhale.util.CacheUtil;
+import com.twentyzhang.bluewhale.util.RedisUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,6 +52,8 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
     private final ReviewMapper reviewMapper;
     private final OrderItemMapper orderItemMapper;
     private final OrderMapper orderMapper;
+    private final CacheUtil cacheUtil;
+    private final RedisUtil redisUtil;
 
     private static final List<String> ACTIVE_ORDER_STATUSES =
             List.of("PENDING_PAYMENT", "PAID", "SHIPPED");
@@ -72,9 +77,16 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
     // ── 2. getProductDetail ───────────────────────────────────────────────────
     @Override
     public ProductDetailResponse getProductById(Long productId) {
+        return cacheUtil.getOrLoad(CacheKeys.productDetail(productId),
+                CacheKeys.PRODUCT_DETAIL_TTL, CacheKeys.PRODUCT_DETAIL_JITTER,
+                () -> loadProductDetail(productId), ProductDetailResponse.class);
+    }
+
+    /** 回源：组装商品详情（关联分类 + 聚合评分）。商品不存在返回 null（由 CacheUtil 写空值占位并抛 404）。 */
+    private ProductDetailResponse loadProductDetail(Long productId) {
         Product product = getById(productId);
         if (product == null) {
-            throw new BusinessException(Result.CODE_NOT_FOUND, "商品不存在");
+            return null;
         }
 
         // 查商店名称
@@ -173,6 +185,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
         if (request.getImageUrl()   != null) product.setImageUrl(request.getImageUrl());
 
         updateById(product);
+        redisUtil.delete(CacheKeys.productDetail(productId)); // 商品变更，失效商品详情缓存
     }
 
     // ── 6. deleteProduct ─────────────────────────────────────────────────────
@@ -209,6 +222,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
         }
 
         removeById(productId);
+        redisUtil.delete(CacheKeys.productDetail(productId)); // 商品删除，失效商品详情缓存
     }
 
     // ── 7. updateStock ────────────────────────────────────────────────────────
@@ -241,6 +255,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
 
             int rows = baseMapper.updateStockTo(productId, newStock, product.getVersion());
             if (rows > 0) {
+                redisUtil.delete(CacheKeys.productDetail(productId)); // 库存变更，失效商品详情缓存
                 return UpdateStockResponse.builder().currentStock(newStock).build();
             }
             // rows == 0：version 被并发修改，重新读取后重试

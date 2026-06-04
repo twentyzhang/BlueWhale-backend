@@ -44,7 +44,11 @@
       "Bash(mvn -o test -Dtest=OrderServiceTest,ProductServiceTest)",
       "Bash(git stash *)",
       "Bash(mvn -o test -Dtest=ProductServiceTest)",
-      "Bash(mvn -o test -Dtest=CouponServiceTest,RedisLockUtilTest)"
+      "Bash(mvn -o test -Dtest=CouponServiceTest,RedisLockUtilTest)",
+      "Bash(mvn -o test -Dtest=CacheUtilTest,RedisUtilTest)",
+      "Bash(ls src/test/java/com/twentyzhang/bluewhale/service/)",
+      "Bash(ls src/test/java/com/twentyzhang/bluewhale/controller/)",
+      "Bash(mvn -o test -Dtest=CacheUtilTest,RedisUtilTest,ProductCategoryServiceTest,StoreServiceTest,ReportServiceTest,ReviewServiceTest,ProductServiceTest)"
     ]
   }
 }

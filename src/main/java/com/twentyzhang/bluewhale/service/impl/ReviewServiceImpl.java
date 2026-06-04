@@ -22,6 +22,10 @@ import com.twentyzhang.bluewhale.mapper.ReviewMapper;
 import com.twentyzhang.bluewhale.mapper.UserMapper;
 import com.twentyzhang.bluewhale.service.ReviewService;
 import com.twentyzhang.bluewhale.util.AuthUtil;
+import com.twentyzhang.bluewhale.util.CacheKeys;
+import com.twentyzhang.bluewhale.util.CacheUtil;
+import com.twentyzhang.bluewhale.util.RedisUtil;
+import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -40,11 +44,21 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
     private final OrderMapper      orderMapper;
     private final OrderItemMapper  orderItemMapper;
     private final UserMapper       userMapper;
+    private final CacheUtil        cacheUtil;
+    private final RedisUtil        redisUtil;
 
     // ── 1. listReviews ────────────────────────────────────────────────────────
 
     @Override
     public IPage<ReviewResponse> getProductReviews(Long productId, int page, int size) {
+        return cacheUtil.getOrLoad(CacheKeys.productReviews(productId, page, size),
+                CacheKeys.PRODUCT_REVIEWS_TTL, CacheKeys.PRODUCT_REVIEWS_JITTER,
+                () -> loadProductReviews(productId, page, size),
+                new TypeReference<Page<ReviewResponse>>() {});
+    }
+
+    @SuppressWarnings("unchecked")
+    private Page<ReviewResponse> loadProductReviews(Long productId, int page, int size) {
         // 无需登录。先校验商品存在。
         if (productMapper.selectById(productId) == null) {
             throw new BusinessException(Result.CODE_NOT_FOUND, "商品不存在");
@@ -60,7 +74,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
 
         List<Review> topReviews = topPage.getRecords();
         if (topReviews.isEmpty()) {
-            return topPage.convert(r -> ReviewResponse.builder().build());
+            return (Page<ReviewResponse>) topPage.convert(r -> ReviewResponse.builder().build());
         }
 
         // 批量查本页所有顶级评论的回复（决策文档第 16 条）
@@ -83,7 +97,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
                     .forEach(u -> nicknameMap.put(u.getId(), u.getNickname()));
         }
 
-        return topPage.convert(r -> ReviewResponse.builder()
+        return (Page<ReviewResponse>) topPage.convert(r -> ReviewResponse.builder()
                 .id(r.getId())
                 .userId(r.getUserId())
                 .userNickname(nicknameMap.get(r.getUserId()))
@@ -149,6 +163,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
                 .content(request.getContent())
                 .build();
         save(review);
+        redisUtil.deleteByPrefix(CacheKeys.productReviewsPrefix(productId)); // 失效该商品的评论分页缓存
         return review.getId();
     }
 
@@ -175,6 +190,7 @@ public class ReviewServiceImpl extends ServiceImpl<ReviewMapper, Review> impleme
                 // 回复无需 orderId 和 rating
                 .build();
         save(reply);
+        redisUtil.deleteByPrefix(CacheKeys.productReviewsPrefix(parent.getProductId())); // 失效该商品的评论分页缓存
         return reply.getId();
     }
 }

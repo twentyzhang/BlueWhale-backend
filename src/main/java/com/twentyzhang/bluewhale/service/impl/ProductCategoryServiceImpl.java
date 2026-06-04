@@ -8,10 +8,14 @@ import com.twentyzhang.bluewhale.dto.CreateCategoryRequest;
 import com.twentyzhang.bluewhale.entity.Product;
 import com.twentyzhang.bluewhale.entity.ProductCategory;
 import com.twentyzhang.bluewhale.exception.BusinessException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.twentyzhang.bluewhale.mapper.ProductCategoryMapper;
 import com.twentyzhang.bluewhale.mapper.ProductMapper;
 import com.twentyzhang.bluewhale.service.ProductCategoryService;
 import com.twentyzhang.bluewhale.util.AuthUtil;
+import com.twentyzhang.bluewhale.util.CacheKeys;
+import com.twentyzhang.bluewhale.util.CacheUtil;
+import com.twentyzhang.bluewhale.util.RedisUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -26,10 +30,19 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
         implements ProductCategoryService {
 
     private final ProductMapper productMapper;
+    private final CacheUtil cacheUtil;
+    private final RedisUtil redisUtil;
 
     // ── 1. getCategoryTree ────────────────────────────────────────────────────
     @Override
     public List<CategoryNodeResponse> getCategoryTree() {
+        return cacheUtil.getOrLoad(CacheKeys.CATEGORY_TREE,
+                CacheKeys.CATEGORY_TREE_TTL, CacheKeys.CATEGORY_TREE_JITTER,
+                this::loadCategoryTree, new TypeReference<List<CategoryNodeResponse>>() {});
+    }
+
+    /** 回源：全表查分类并在内存组装为树。 */
+    private List<CategoryNodeResponse> loadCategoryTree() {
         List<ProductCategory> all = list();
 
         // 第一步：将所有分类转为 VO，建立 id → node 的索引 Map
@@ -88,6 +101,7 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
                 .parentId(request.getParentId())
                 .build();
         save(category);
+        redisUtil.delete(CacheKeys.CATEGORY_TREE); // 分类变更，失效分类树缓存
         return category.getId();
     }
 
@@ -115,5 +129,6 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
         }
 
         removeById(categoryId);
+        redisUtil.delete(CacheKeys.CATEGORY_TREE); // 分类变更，失效分类树缓存
     }
 }

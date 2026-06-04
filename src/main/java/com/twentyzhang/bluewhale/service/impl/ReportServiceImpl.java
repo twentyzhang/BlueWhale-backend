@@ -10,6 +10,8 @@ import com.twentyzhang.bluewhale.exception.BusinessException;
 import com.twentyzhang.bluewhale.mapper.OrderMapper;
 import com.twentyzhang.bluewhale.service.ReportService;
 import com.twentyzhang.bluewhale.util.AuthUtil;
+import com.twentyzhang.bluewhale.util.CacheKeys;
+import com.twentyzhang.bluewhale.util.CacheUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -26,6 +28,7 @@ import java.util.Map;
 public class ReportServiceImpl extends ServiceImpl<OrderMapper, Order> implements ReportService {
 
     private final OrderMapper orderMapper;
+    private final CacheUtil cacheUtil;
 
     // ── 4. getStoreOrderReport ────────────────────────────────────────────────
 
@@ -35,9 +38,13 @@ public class ReportServiceImpl extends ServiceImpl<OrderMapper, Order> implement
         AuthUtil.requireStoreAccess(storeId);
 
         LocalDate[] range = normalizeAndValidate(startDate, endDate);
-        LocalDate effectiveStart = range[0];
-        LocalDate effectiveEnd   = range[1];
+        return cacheUtil.getOrLoad(CacheKeys.storeReport(storeId, range[0], range[1]),
+                CacheKeys.REPORT_TTL, CacheKeys.REPORT_JITTER,
+                () -> loadStoreOrderReport(storeId, range[0], range[1]),
+                StoreOrderReportResponse.class);
+    }
 
+    private StoreOrderReportResponse loadStoreOrderReport(Long storeId, LocalDate effectiveStart, LocalDate effectiveEnd) {
         // 各状态订单数（totalOrders 含所有状态）
         Map<String, Integer> statusBreakdown = new LinkedHashMap<>();
         long totalOrders = 0;
@@ -83,9 +90,13 @@ public class ReportServiceImpl extends ServiceImpl<OrderMapper, Order> implement
         AuthUtil.requireRole(AuthUtil.ROLE_ADMIN);
 
         LocalDate[] range = normalizeAndValidate(startDate, endDate);
-        LocalDate effectiveStart = range[0];
-        LocalDate effectiveEnd   = range[1];
+        return cacheUtil.getOrLoad(CacheKeys.globalReport(range[0], range[1]),
+                CacheKeys.REPORT_TTL, CacheKeys.REPORT_JITTER,
+                () -> loadGlobalOrderReport(range[0], range[1]),
+                GlobalOrderReportResponse.class);
+    }
 
+    private GlobalOrderReportResponse loadGlobalOrderReport(LocalDate effectiveStart, LocalDate effectiveEnd) {
         // 全局各状态订单数 → 计算 totalOrders
         long totalOrders = 0;
         for (Map<String, Object> row :

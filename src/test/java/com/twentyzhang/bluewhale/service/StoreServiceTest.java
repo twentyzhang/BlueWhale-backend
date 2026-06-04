@@ -13,6 +13,11 @@ import com.twentyzhang.bluewhale.mapper.StoreMapper;
 import com.twentyzhang.bluewhale.mapper.UserMapper;
 import com.twentyzhang.bluewhale.service.impl.StoreServiceImpl;
 import com.twentyzhang.bluewhale.util.AuthUtil;
+import com.twentyzhang.bluewhale.util.CacheKeys;
+import com.twentyzhang.bluewhale.util.CacheUtil;
+import com.twentyzhang.bluewhale.util.RedisUtil;
+import com.fasterxml.jackson.core.type.TypeReference;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -46,6 +51,12 @@ class StoreServiceTest extends BaseServiceTest {
     @Mock
     private ProductMapper productMapper;
 
+    @Mock
+    private CacheUtil cacheUtil;
+
+    @Mock
+    private RedisUtil redisUtil;
+
     @InjectMocks
     private StoreServiceImpl storeService;
 
@@ -63,6 +74,17 @@ class StoreServiceTest extends BaseServiceTest {
         // baseMapper 泛型擦除导致 Mockito 字段注入失败，手动注入。
         // 详见 docs/debug记录.md 第 3 条。
         ReflectionTestUtils.setField(storeService, "baseMapper", storeMapper);
+        // CacheUtil 透传：执行 loader 返回结果；单实体 loader 返回 null 时按 getOrLoad 语义抛 404
+        lenient().when(cacheUtil.getOrLoad(anyString(), anyLong(), anyLong(),
+                        any(Supplier.class), any(Class.class)))
+                .thenAnswer(inv -> {
+                    Object v = ((Supplier<?>) inv.getArgument(3)).get();
+                    if (v == null) throw new BusinessException(Result.CODE_NOT_FOUND, "资源不存在");
+                    return v;
+                });
+        lenient().when(cacheUtil.getOrLoad(anyString(), anyLong(), anyLong(),
+                        any(Supplier.class), any(TypeReference.class)))
+                .thenAnswer(inv -> ((Supplier<?>) inv.getArgument(3)).get());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -132,7 +154,8 @@ class StoreServiceTest extends BaseServiceTest {
             BusinessException ex = assertThrows(BusinessException.class,
                     () -> storeService.getStoreById(999L));
             assertEquals(Result.CODE_NOT_FOUND, ex.getCode());
-            assertEquals("商店不存在", ex.getMessage());
+            // 经 CacheUtil 穿透防护后，未找到统一抛通用 404 消息
+            assertEquals("资源不存在", ex.getMessage());
         }
     }
 
@@ -248,6 +271,9 @@ class StoreServiceTest extends BaseServiceTest {
             assertEquals("新名",   store.getName());
             assertEquals("old.png", store.getLogo()); // 未修改
             verify(storeMapper).updateById(store);
+            // 更新后失效该商店详情 + 列表缓存
+            verify(redisUtil).delete(CacheKeys.storeDetail(1L));
+            verify(redisUtil).deleteByPrefix(CacheKeys.STORE_LIST_PREFIX);
         }
 
         @Test
