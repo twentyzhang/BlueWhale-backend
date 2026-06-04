@@ -52,6 +52,13 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
 
+# 业务配置
+bluewhale:
+  order:
+    # 未支付订单保留天数，超过即由定时任务（OrderAutocancelJob）自动取消。
+    # 默认 14 天；演示时可调小（如 1）以便快速观察效果。
+    auto-cancel-days: 14
+
 logging:
   level:
     com.twentyzhang.bluewhale: debug

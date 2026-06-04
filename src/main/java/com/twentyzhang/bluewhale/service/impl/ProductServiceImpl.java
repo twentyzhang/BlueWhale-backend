@@ -212,30 +212,40 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
     }
 
     // ── 7. updateStock ────────────────────────────────────────────────────────
+
+    /** 库存调整的乐观锁最大重试次数。 */
+    private static final int STOCK_UPDATE_MAX_RETRY = 3;
+
     @Override
     public UpdateStockResponse updateStock(Long storeId, Long productId, UpdateStockRequest request) {
         AuthUtil.requireRole(AuthUtil.ROLE_STAFF);
         AuthUtil.requireStoreAccess(storeId);
 
-        Product product = getById(productId);
-        if (product == null || !storeId.equals(product.getStoreId())) {
-            throw new BusinessException(Result.CODE_NOT_FOUND, "商品不存在");
-        }
-
-        int newStock;
-        if ("IN".equals(request.getType())) {
-            newStock = product.getStock() + request.getDelta();
-        } else {
-            if (product.getStock() < request.getDelta()) {
-                throw new BusinessException(
-                        "库存不足，当前库存 " + product.getStock() + "，出库数量 " + request.getDelta());
+        // 乐观锁：每次重新读取最新 stock/version，带版本号更新；冲突（影响行数 0）则重试
+        for (int attempt = 0; attempt < STOCK_UPDATE_MAX_RETRY; attempt++) {
+            Product product = getById(productId);
+            if (product == null || !storeId.equals(product.getStoreId())) {
+                throw new BusinessException(Result.CODE_NOT_FOUND, "商品不存在");
             }
-            newStock = product.getStock() - request.getDelta();
-        }
 
-        product.setStock(newStock);
-        updateById(product);
-        return UpdateStockResponse.builder().currentStock(newStock).build();
+            int newStock;
+            if ("IN".equals(request.getType())) {
+                newStock = product.getStock() + request.getDelta();
+            } else {
+                if (product.getStock() < request.getDelta()) {
+                    throw new BusinessException(
+                            "库存不足，当前库存 " + product.getStock() + "，出库数量 " + request.getDelta());
+                }
+                newStock = product.getStock() - request.getDelta();
+            }
+
+            int rows = baseMapper.updateStockTo(productId, newStock, product.getVersion());
+            if (rows > 0) {
+                return UpdateStockResponse.builder().currentStock(newStock).build();
+            }
+            // rows == 0：version 被并发修改，重新读取后重试
+        }
+        throw new BusinessException("库存更新失败，请重试");
     }
 
     // ── 私有辅助方法 ──────────────────────────────────────────────────────────

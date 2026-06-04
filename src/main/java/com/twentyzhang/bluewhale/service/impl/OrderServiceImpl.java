@@ -168,11 +168,9 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
         // ─── Phase 2：所有写操作（全部校验通过后统一执行）──────────────────
 
-        // 6. 统一扣减库存（所有校验已通过，现在才操作 DB）
+        // 6. 统一扣减库存（乐观锁 + 库存下限保护，防止并发超卖）
         for (CartItem item : cartItems) {
-            Product product = productMap.get(item.getProductId());
-            product.setStock(product.getStock() - item.getQuantity());
-            productMapper.updateById(product);
+            deductStockWithOptimisticLock(item.getProductId(), item.getQuantity());
         }
 
         // 7. 创建订单
@@ -479,6 +477,26 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 .build();
     }
 
+    // ── cancelExpiredUnpaidOrder（系统级，定时任务逐条调用）────────────────────
+
+    @Override
+    @Transactional
+    public void cancelExpiredUnpaidOrder(Order order) {
+        // 重新加载并校验状态：调度查询与执行之间订单可能已被支付/取消（幂等防御）
+        Order fresh = getById(order.getId());
+        if (fresh == null || !"PENDING_PAYMENT".equals(fresh.getStatus())) {
+            return;
+        }
+
+        // 与手动取消一致：恢复库存（下单即扣减）、恢复优惠券（下单即标记 USED）
+        restoreInventory(fresh.getId());
+        restoreCoupon(fresh.getCouponId());
+
+        fresh.setStatus("CANCELLED");
+        fresh.setCancelledAt(LocalDateTime.now());
+        updateById(fresh);
+    }
+
     // ── 私有辅助方法 ──────────────────────────────────────────────────────────
 
     /** 加载订单，校验存在性和 Customer 归属。 */
@@ -492,6 +510,34 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             throw new BusinessException(Result.CODE_FORBIDDEN, "无权操作该订单");
         }
         return order;
+    }
+
+    /** 单条库存扣减的乐观锁最大重试次数。 */
+    private static final int STOCK_DEDUCT_MAX_RETRY = 3;
+
+    /**
+     * 乐观锁扣减库存：每次重新读取最新 stock/version 后尝试带版本号的条件更新，
+     * 影响行数为 0（版本被并发抢先修改）则重试，最多 {@value #STOCK_DEDUCT_MAX_RETRY} 次，
+     * 仍失败抛出 BusinessException。库存不足则直接抛出（不重试）。
+     */
+    private void deductStockWithOptimisticLock(Long productId, int quantity) {
+        for (int attempt = 0; attempt < STOCK_DEDUCT_MAX_RETRY; attempt++) {
+            Product product = productMapper.selectById(productId);
+            if (product == null) {
+                throw new BusinessException("商品 ID=" + productId + " 不存在或已下架");
+            }
+            if (product.getStock() < quantity) {
+                throw new BusinessException(
+                        "商品【" + product.getName() + "】库存不足，当前库存 "
+                        + product.getStock() + "，需要 " + quantity);
+            }
+            int rows = productMapper.updateStockWithVersion(productId, quantity, product.getVersion());
+            if (rows > 0) {
+                return; // 扣减成功
+            }
+            // rows == 0：version 被其他请求抢先修改，重新读取后重试
+        }
+        throw new BusinessException("库存更新失败，请重试");
     }
 
     /** 恢复该订单所有条目对应商品的库存。逻辑删除的商品跳过，不影响取消流程。 */

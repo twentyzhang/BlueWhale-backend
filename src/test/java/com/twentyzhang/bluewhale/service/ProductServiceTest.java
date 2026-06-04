@@ -382,11 +382,11 @@ class ProductServiceTest extends BaseServiceTest {
     class UpdateStock {
 
         @Test
-        @DisplayName("IN 操作：库存正确增加")
+        @DisplayName("IN 操作：库存正确增加（乐观锁 updateStockTo）")
         void stockIn_increasesStock() {
             mockAuthUser(1L, AuthUtil.ROLE_STAFF, 1L);
             when(productMapper.selectById(101L)).thenReturn(product(101L, 1L, 1L, "老陈醋", null, 100));
-            when(productMapper.updateById(anyProduct())).thenReturn(1);
+            when(productMapper.updateStockTo(eq(101L), eq(150), any())).thenReturn(1);
 
             UpdateStockRequest req = new UpdateStockRequest();
             req.setDelta(50);
@@ -398,11 +398,11 @@ class ProductServiceTest extends BaseServiceTest {
         }
 
         @Test
-        @DisplayName("OUT 操作：库存正确减少")
+        @DisplayName("OUT 操作：库存正确减少（乐观锁 updateStockTo）")
         void stockOut_decreasesStock() {
             mockAuthUser(1L, AuthUtil.ROLE_STAFF, 1L);
             when(productMapper.selectById(101L)).thenReturn(product(101L, 1L, 1L, "老陈醋", null, 100));
-            when(productMapper.updateById(anyProduct())).thenReturn(1);
+            when(productMapper.updateStockTo(eq(101L), eq(70), any())).thenReturn(1);
 
             UpdateStockRequest req = new UpdateStockRequest();
             req.setDelta(30);
@@ -427,7 +427,43 @@ class ProductServiceTest extends BaseServiceTest {
                     () -> productService.updateStock(1L, 101L, req));
             assertTrue(ex.getMessage().contains("10")); // 当前库存
             assertTrue(ex.getMessage().contains("50")); // 出库数量
-            verify(productMapper, never()).updateById(anyProduct());
+            verify(productMapper, never()).updateStockTo(any(), anyInt(), any());
+        }
+
+        @Test
+        @DisplayName("乐观锁冲突：第 1 次更新 0 行，重新读取后第 2 次成功")
+        void optimisticLock_retrySucceeds() {
+            mockAuthUser(1L, AuthUtil.ROLE_STAFF, 1L);
+            when(productMapper.selectById(101L)).thenReturn(product(101L, 1L, 1L, "老陈醋", null, 100));
+            when(productMapper.updateStockTo(eq(101L), eq(150), any())).thenReturn(0, 1);
+
+            UpdateStockRequest req = new UpdateStockRequest();
+            req.setDelta(50);
+            req.setType("IN");
+
+            UpdateStockResponse resp = productService.updateStock(1L, 101L, req);
+
+            assertEquals(150, resp.getCurrentStock());
+            verify(productMapper, times(2)).selectById(101L);          // 每次重试前重新读取
+            verify(productMapper, times(2)).updateStockTo(eq(101L), eq(150), any());
+        }
+
+        @Test
+        @DisplayName("乐观锁连续 3 次冲突后抛出『库存更新失败，请重试』")
+        void optimisticLock_exhaustedThrows() {
+            mockAuthUser(1L, AuthUtil.ROLE_STAFF, 1L);
+            when(productMapper.selectById(101L)).thenReturn(product(101L, 1L, 1L, "老陈醋", null, 100));
+            when(productMapper.updateStockTo(eq(101L), eq(150), any())).thenReturn(0); // 始终冲突
+
+            UpdateStockRequest req = new UpdateStockRequest();
+            req.setDelta(50);
+            req.setType("IN");
+
+            BusinessException ex = assertThrows(BusinessException.class,
+                    () -> productService.updateStock(1L, 101L, req));
+
+            assertTrue(ex.getMessage().contains("库存更新失败"), "实际：" + ex.getMessage());
+            verify(productMapper, times(3)).updateStockTo(eq(101L), eq(150), any());
         }
     }
 

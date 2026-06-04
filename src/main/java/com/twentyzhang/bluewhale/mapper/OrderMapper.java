@@ -7,11 +7,28 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
 @Mapper
 public interface OrderMapper extends BaseMapper<Order> {
+
+    /**
+     * 查询所有 created_at 早于 {@code expireTime} 且状态为 PENDING_PAYMENT 的未支付订单。
+     * 供未支付订单自动取消的定时任务使用。
+     * <p>自定义 SQL 不会自动追加逻辑删除条件，故显式 {@code deleted = 0}；
+     * {@code created_at} 别名为 {@code createTime} 以匹配实体字段（见决策第 11 条）。
+     */
+    @Select("""
+            SELECT id, user_id, store_id, status, coupon_id,
+                   created_at AS createTime
+            FROM orders
+            WHERE status = 'PENDING_PAYMENT'
+              AND created_at < #{expireTime}
+              AND deleted = 0
+            """)
+    List<Order> selectExpiredUnpaidOrders(@Param("expireTime") LocalDateTime expireTime);
 
     /**
      * 按状态分组统计订单数。

@@ -115,7 +115,11 @@ class OrderServiceTest extends BaseServiceTest {
             when(cartMapper.selectOne(any())).thenReturn(Cart.builder().id(10L).userId(1L).build());
             when(userAddressMapper.selectById(3L)).thenReturn(address(3L, 1L));
             when(productMapper.selectBatchIds(any())).thenReturn(products);
-            when(productMapper.updateById(anyProduct())).thenReturn(1);
+            // 乐观锁扣减库存：按 id 重新读取 + 带版本号条件更新（返回 1 表示成功）
+            for (Product p : products) {
+                when(productMapper.selectById(p.getId())).thenReturn(p);
+            }
+            when(productMapper.updateStockWithVersion(any(), anyInt(), any())).thenReturn(1);
             doAnswer(inv -> { ((Order) inv.getArgument(0)).setId(1001L); return 1; })
                     .when(orderMapper).insert(anyOrder());
             when(orderItemMapper.insert(anyOrderItem())).thenReturn(1);
@@ -140,12 +144,9 @@ class OrderServiceTest extends BaseServiceTest {
             assertEquals(new BigDecimal("40.00"), resp.getPayableAmount());
             assertEquals(1001L, resp.getOrderId());
 
-            // 库存扣减：productMapper.updateById 被调用两次
-            ArgumentCaptor<Product> captor = ArgumentCaptor.forClass(Product.class);
-            verify(productMapper, times(2)).updateById((Product) captor.capture());
-            List<Product> saved = captor.getAllValues();
-            assertTrue(saved.stream().anyMatch(p -> p.getId().equals(101L) && p.getStock() == 48));
-            assertTrue(saved.stream().anyMatch(p -> p.getId().equals(102L) && p.getStock() == 29));
+            // 库存乐观锁扣减：按数量调用 updateStockWithVersion
+            verify(productMapper).updateStockWithVersion(eq(101L), eq(2), any());
+            verify(productMapper).updateStockWithVersion(eq(102L), eq(1), any());
 
             // 购物车条目删除
             verify(cartItemMapper, times(2)).deleteById((Serializable) any());
@@ -214,7 +215,7 @@ class OrderServiceTest extends BaseServiceTest {
                     () -> orderService.createOrder(1L, orderReq(List.of(1L), 3L, null)));
 
             assertTrue(ex.getMessage().contains("老陈醋"), "错误消息应包含商品名称，实际：" + ex.getMessage());
-            verify(productMapper, never()).updateById(anyProduct()); // 校验失败不写库
+            verify(productMapper, never()).updateStockWithVersion(any(), anyInt(), any()); // 校验失败不写库
         }
 
         @Test
@@ -276,6 +277,49 @@ class OrderServiceTest extends BaseServiceTest {
                     () -> orderService.createOrder(1L, orderReq(List.of(1L), 3L, 5L)));
 
             assertTrue(ex.getMessage().contains("50"), "错误消息应含门槛金额，实际：" + ex.getMessage());
+            verify(orderMapper, never()).insert(anyOrder());
+        }
+
+        @Test
+        @DisplayName("库存乐观锁冲突：第 1 次更新影响 0 行，重新读取后第 2 次成功")
+        void optimisticLock_retrySucceeds() {
+            mockAuthUser(1L, AuthUtil.ROLE_CUSTOMER, null);
+            when(cartItemMapper.selectBatchIds(any())).thenReturn(List.of(cartItem(1L, 10L, 101L, 2)));
+            when(cartMapper.selectOne(any())).thenReturn(Cart.builder().id(10L).userId(1L).build());
+            when(userAddressMapper.selectById(3L)).thenReturn(address(3L, 1L));
+            Product p = product(101L, "商品A", new BigDecimal("10.00"), 50, 100L);
+            when(productMapper.selectBatchIds(any())).thenReturn(List.of(p));
+            when(productMapper.selectById(101L)).thenReturn(p);
+            // 第 1 次冲突（0 行），第 2 次成功（1 行）
+            when(productMapper.updateStockWithVersion(eq(101L), eq(2), any())).thenReturn(0, 1);
+            doAnswer(inv -> { ((Order) inv.getArgument(0)).setId(1001L); return 1; })
+                    .when(orderMapper).insert(anyOrder());
+            when(orderItemMapper.insert(anyOrderItem())).thenReturn(1);
+
+            CreateOrderResponse resp = orderService.createOrder(1L, orderReq(List.of(1L), 3L, null));
+
+            assertEquals(1001L, resp.getOrderId());
+            verify(productMapper, times(2)).updateStockWithVersion(eq(101L), eq(2), any());
+            verify(productMapper, times(2)).selectById(101L); // 每次重试前重新读取
+        }
+
+        @Test
+        @DisplayName("库存乐观锁连续 3 次冲突后抛出『库存更新失败，请重试』，不创建订单")
+        void optimisticLock_exhaustedThrows() {
+            mockAuthUser(1L, AuthUtil.ROLE_CUSTOMER, null);
+            when(cartItemMapper.selectBatchIds(any())).thenReturn(List.of(cartItem(1L, 10L, 101L, 2)));
+            when(cartMapper.selectOne(any())).thenReturn(Cart.builder().id(10L).userId(1L).build());
+            when(userAddressMapper.selectById(3L)).thenReturn(address(3L, 1L));
+            Product p = product(101L, "商品A", new BigDecimal("10.00"), 50, 100L);
+            when(productMapper.selectBatchIds(any())).thenReturn(List.of(p));
+            when(productMapper.selectById(101L)).thenReturn(p);
+            when(productMapper.updateStockWithVersion(eq(101L), eq(2), any())).thenReturn(0); // 始终冲突
+
+            BusinessException ex = assertThrows(BusinessException.class,
+                    () -> orderService.createOrder(1L, orderReq(List.of(1L), 3L, null)));
+
+            assertTrue(ex.getMessage().contains("库存更新失败"), "实际：" + ex.getMessage());
+            verify(productMapper, times(3)).updateStockWithVersion(eq(101L), eq(2), any()); // 重试 3 次
             verify(orderMapper, never()).insert(anyOrder());
         }
     }
@@ -469,6 +513,68 @@ class OrderServiceTest extends BaseServiceTest {
 
             assertThrows(BusinessException.class, () -> orderService.cancelOrder(1L, 1001L));
             verify(orderMapper, never()).updateById(anyOrder());
+        }
+    }
+
+    // ── cancelExpiredUnpaidOrder（定时任务，系统级无鉴权）──────────────────────
+
+    @Nested
+    @DisplayName("cancelExpiredUnpaidOrder")
+    class CancelExpiredUnpaidOrderTests {
+
+        @Test
+        @DisplayName("取消过期未支付订单：恢复库存、置为 CANCELLED、记录取消时间")
+        void cancelsExpiredOrder_restoresStock() {
+            // 系统级方法不读 SecurityContext，无需 mockAuthUser
+            when(orderMapper.selectById(1001L)).thenReturn(order(1001L, 1L, 100L, "PENDING_PAYMENT"));
+            when(orderItemMapper.selectList(any())).thenReturn(List.of(
+                    OrderItem.builder().orderId(1001L).productId(101L).quantity(2).build()));
+            when(productMapper.selectById(101L)).thenReturn(
+                    product(101L, "商品A", new BigDecimal("10.00"), 48, 100L));
+            when(productMapper.updateById(anyProduct())).thenReturn(1);
+            when(orderMapper.updateById(anyOrder())).thenReturn(1);
+
+            orderService.cancelExpiredUnpaidOrder(Order.builder().id(1001L).build());
+
+            // 库存恢复：48 + 2 = 50
+            ArgumentCaptor<Product> pc = ArgumentCaptor.forClass(Product.class);
+            verify(productMapper).updateById((Product) pc.capture());
+            assertEquals(50, pc.getValue().getStock());
+            // 订单状态置为 CANCELLED 且记录取消时间
+            ArgumentCaptor<Order> oc = ArgumentCaptor.forClass(Order.class);
+            verify(orderMapper).updateById((Order) oc.capture());
+            assertEquals("CANCELLED", oc.getValue().getStatus());
+            assertNotNull(oc.getValue().getCancelledAt());
+        }
+
+        @Test
+        @DisplayName("使用了优惠券的过期订单取消时恢复优惠券为 UNUSED")
+        void withCoupon_couponRestored() {
+            when(orderMapper.selectById(1001L))
+                    .thenReturn(orderWithCoupon(1001L, 1L, 100L, "PENDING_PAYMENT", 5L));
+            when(orderItemMapper.selectList(any())).thenReturn(List.of(
+                    OrderItem.builder().orderId(1001L).productId(101L).quantity(1).build()));
+            when(productMapper.selectById(101L)).thenReturn(
+                    product(101L, "商品A", new BigDecimal("10.00"), 9, 100L));
+            when(productMapper.updateById(anyProduct())).thenReturn(1);
+            when(couponMapper.update(isNull(), any())).thenReturn(1);
+            when(orderMapper.updateById(anyOrder())).thenReturn(1);
+
+            orderService.cancelExpiredUnpaidOrder(Order.builder().id(1001L).build());
+
+            verify(couponMapper).update(isNull(), any());
+        }
+
+        @Test
+        @DisplayName("订单已非 PENDING_PAYMENT（如已支付）时跳过，不做任何写操作")
+        void alreadyPaid_skipped() {
+            when(orderMapper.selectById(1001L)).thenReturn(order(1001L, 1L, 100L, "PAID"));
+
+            orderService.cancelExpiredUnpaidOrder(Order.builder().id(1001L).build());
+
+            verify(orderMapper, never()).updateById(anyOrder());
+            verify(productMapper, never()).updateById(anyProduct());
+            verify(orderItemMapper, never()).selectList(any());
         }
     }
 

@@ -79,4 +79,15 @@ public interface OrderService extends IService<Order> {
      * 对应 POST /api/stores/{storeId}/orders/{orderId}/ship
      */
     ShipOrderResponse shipOrder(Long storeId, Long orderId, ShipOrderRequest request);
+
+    /**
+     * 系统级：取消一笔过期未支付订单——恢复库存（下单时已扣减）、恢复优惠券为 UNUSED
+     * （下单时已标记 USED），将状态置为 CANCELLED 并记录 cancelledAt。
+     * <p>无鉴权上下文（不读 SecurityContext），仅供定时任务逐条调用，不对外暴露为接口。
+     * 自身为独立事务，便于调用方对单条失败做隔离。执行前会重新校验状态，非
+     * PENDING_PAYMENT 则跳过（幂等，防止与手动支付/取消竞态）。
+     *
+     * @param order 待取消的订单（至少含 id）
+     */
+    void cancelExpiredUnpaidOrder(Order order);
 }

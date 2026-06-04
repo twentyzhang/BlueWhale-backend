@@ -33,7 +33,18 @@
       "Bash(mvn -o -q dependency:get -Dartifact=org.flywaydb:flyway-mysql:LATEST)",
       "Bash(mvn -q -o compile)",
       "Bash(echo \"EXIT=$?\")",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(mvn -q -o test -Dtest=OrderServiceTest)",
+      "Bash(mvn -o test -Dtest=OrderServiceTest)",
+      "Bash(printf '\\\\n---\\\\n\\\\n## 定时任务：未支付订单自动取消（OrderAutoCancelTask）\\\\n\\\\n> 路线图任务 1。复用订单手动取消的库存/优惠券恢复逻辑，无鉴权上下文。\\\\n\\\\n### 触发与配置\\\\n\\\\n- `BluewhaleApplication` 加 `@EnableScheduling` 开启调度。\\\\n- `task/OrderAutoCancelTask` 用 `@Scheduled\\(cron = \"${order.auto-cancel.cron:0 */5 * * * *}\"\\)` 周期扫描，默认每 5 分钟。\\\\n- `@ConditionalOnProperty\\(name = \"order.auto-cancel.enabled\", matchIfMissing = true\\)`：配 `false` 则整个 Bean 不注册、定时任务不生效。\\\\n- 超时阈值 `order.auto-cancel.timeout-minutes`（默认 20160=14 天）经 `@Value` 注入。\\\\n\\\\n### 执行流程（OrderServiceImpl.cancelTimeoutPendingOrders）\\\\n\\\\n1. 计算阈值 `threshold = now - timeoutMinutes`。\\\\n2. `list\\(status = PENDING_PAYMENT AND createTime < threshold\\)` 查出所有超时未支付订单。\\\\n3. 逐单处理（复用私有方法，与手动 `cancelOrder` 一致）：`restoreInventory` 恢复库存 → `restoreCoupon` 恢复优惠券为 UNUSED → 置 `CANCELLED` + 记 `cancelledAt` → `updateById`。\\\\n4. 返回本次取消数量。\\\\n\\\\n### 关键设计 / 边界\\\\n\\\\n- **为什么不复用 `cancelOrder`**：`cancelOrder` 内部 `requireCustomerOrder` 会读 SecurityContext 校验 Customer 归属，而定时任务运行时无鉴权上下文，故新增系统级方法 `cancelTimeoutPendingOrders`，不做角色鉴权、不对外暴露接口。\\\\n- **方法整体 `@Transactional`**：一次批处理为一个事务，单笔异常会回滚整批并在下个周期重试；MVP 阶段可接受。\\\\n- **任务内 try/catch 兜底**：`@Scheduled` 方法若抛异常会影响后续调度，故捕获并记录日志。\\\\n- **只取消 PENDING_PAYMENT**：已支付/已发货等状态不受影响。\\\\n')",
+      "Bash(rm \"src/main/java/com/twentyzhang/bluewhale/task/OrderAutoCancelTask.java\")",
+      "Bash(rmdir \"src/main/java/com/twentyzhang/bluewhale/task\")",
+      "Bash(mvn -o test -Dtest=OrderServiceTest,OrderAutocancelJobTest)",
+      "Bash(awk '/## 定时任务：未支付订单自动取消/{f=1} f' \"docs/实现说明.md\")",
+      "Bash(mvn -o test -Dtest=OrderServiceTest,ProductServiceTest)",
+      "Bash(git stash *)",
+      "Bash(mvn -o test -Dtest=ProductServiceTest)",
+      "Bash(mvn -o test -Dtest=CouponServiceTest,RedisLockUtilTest)"
     ]
   }
 }

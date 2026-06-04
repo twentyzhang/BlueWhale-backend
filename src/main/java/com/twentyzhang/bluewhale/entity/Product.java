@@ -34,6 +34,14 @@ public class Product {
     @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
 
+    /**
+     * 乐观锁版本号。库存扣减/调整通过自定义 SQL（version = version + 1 WHERE version = ?）维护，
+     * 防止并发下单超卖。本项目未注册 OptimisticLockerInnerInterceptor，故普通 updateById 不参与
+     * 版本校验，版本号仅由 ProductMapper 的乐观锁方法推进。
+     */
+    @Version
+    private Integer version;
+
     @TableLogic
     private Integer deleted;
 }
