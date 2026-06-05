@@ -2,7 +2,28 @@
 
 > 本文档面向前端开发，描述后端已实现接口的调用方式、鉴权流程、错误处理、枚举值与本地启动方法。
 > 接口的完整字段定义以 [`api-spec.md`](./api-spec.md) 为准，本文档侧重「前端怎么用」。
-> 最后更新：2026-06-03（含 `POST /api/auth/refresh` 刷新接口）。
+> 最后更新：2026-06-05（任务 4 报表导出 Excel、任务 5 多优惠券叠加 + 试算接口）。
+
+---
+
+## 0. 最近接口变更（前端需重点调整）
+
+> 本次更新（任务 4 报表导出、任务 5 多优惠券叠加）含 **2 处破坏性变更** 和 **3 项新增**。下表为速览，细节见对应模块（订单=模块五、优惠券=模块八、报表=模块十）。
+
+### ⚠️ 破坏性变更（必须改，否则功能异常）
+
+| # | 变更 | 影响接口 | 前端要做什么 |
+|---|---|---|---|
+| 1 | **优惠券类型枚举调整**：原 `AMOUNT_OFF` **拆分为** `FULL_REDUCTION`（满减，有门槛）和 `DIRECT_OFF`（直减，无门槛） | 所有读写券 `type` 的接口：可领券列表、我的优惠券、发布店铺/全局券 | ① 更新 type→文案映射，**删除 `AMOUNT_OFF`**，新增 `FULL_REDUCTION`/`DIRECT_OFF` 两个展示；② 发布券表单的「类型」选项由 2 项改 3 项；③ 满减必须带 `minOrderAmount>0`，直减必须 `minOrderAmount=0`（前端做对应表单校验，否则后端 400） |
+| 2 | **下单改为多券**：`POST /api/orders` 请求体 `couponId`（单个 `long`）→ `couponIds`（`long[]` 数组） | 创建订单 | 改字段名与类型；不用券时传 `[]` 或不传。选券 UI 支持多选（受下方叠加规则约束） |
+
+### 🆕 新增能力
+
+| # | 新增 | 接口 | 说明 |
+|---|---|---|---|
+| 3 | **优惠券试算** | `POST /api/orders/coupon-preview` | 下单前预览「最优能省多少」，结算页选券时实时调用；不创建订单、不核销券 |
+| 4 | **多券叠加规则** | 下单 / 试算 | **同类型最多 1 张、不同类型可叠加**（折扣 + 满减 + 直减 各 1 张，最多 3 张）。后台自动按最优顺序计价取**最大折扣**，前端只需把选中的券 ID 全部放进 `couponIds`，无需关心计算顺序 |
+| 5 | **报表导出 Excel** | `GET /api/stores/{storeId}/reports/orders/export`、`GET /api/admin/reports/orders/export` | 返回 **xlsx 二进制流（非 JSON）**，需用 blob 方式下载，**不要走统一 JSON 拦截器**（见模块十说明） |
 
 ---
 
@@ -248,7 +269,8 @@ api.interceptors.response.use(
 
 | 接口 | 方法 + 路径 | 角色 | 关键参数 | 响应 data | 常见错误 |
 |---|---|---|---|---|---|
-| 创建订单 | POST `/api/orders` | Customer | body: `cartItemIds`(long[],必), `addressId`(必), `couponId`(可选) | `{orderId,totalAmount,discountAmount,payableAmount}` | 购物车条目/地址/商品不存在→404/400；库存不足→400；优惠券不可用→400 |
+| 创建订单 | POST `/api/orders` | Customer | body: `cartItemIds`(long[],必), `addressId`(必), **`couponIds`(long[],可选)** | `{orderId,totalAmount,discountAmount,payableAmount}` | 购物车条目/地址/商品不存在→404/400；库存不足→400；券不可用/未达门槛/同类型多张/不适用本店→400 |
+| **优惠券试算** | POST `/api/orders/coupon-preview` | Customer | body: `cartItemIds`(long[],必), `couponIds`(long[],可选) | `{totalAmount,discountAmount,payableAmount,appliedCouponIds}` | 同下单的券校验错误→400 |
 | 我的订单 | GET `/api/orders` | Customer | query: `status`(可选), `page`,`size` | 分页：`{id,status,payableAmount,createdAt,storeName,itemCount}` | — |
 | 订单详情 | GET `/api/orders/{orderId}` | Customer（本人）/ Staff（本店） | path | `{id,status,totalAmount,discountAmount,payableAmount,createdAt,paidAt,address{...},items[...]}` | 不存在/越权→404/403 |
 | 支付 | POST `/api/orders/{orderId}/pay` | Customer（本人） | body `{}` | `{status:"PAID", paidAt}` | 状态非 PENDING_PAYMENT→400 |
@@ -258,7 +280,14 @@ api.interceptors.response.use(
 | 门店订单列表 | GET `/api/stores/{storeId}/orders` | Staff（本店） | query: `status`,`page`,`size` | 分页（同我的订单） | 非本店→403 |
 | 发货 | POST `/api/stores/{storeId}/orders/{orderId}/ship` | Staff（本店） | body: `trackingNumber`, `carrier` | `{status:"SHIPPED", shippedAt}` | 状态非 PAID→400；非本店→403 |
 
-> 取消/退款响应里 `refunded` / `refundedAt`：已支付订单取消时 `refunded=true`，未支付时 `false`。取消和退款都会恢复库存并把已用优惠券退回 UNUSED。
+> 取消/退款响应里 `refunded` / `refundedAt`：已支付订单取消时 `refunded=true`，未支付时 `false`。取消和退款都会恢复库存并把已用优惠券（**含多张**）退回 UNUSED。
+>
+> **多优惠券叠加（重点）：**
+> - 一笔订单可同时使用 **折扣(DISCOUNT) + 满减(FULL_REDUCTION) + 直减(DIRECT_OFF) 各一张**，最多 3 张；**同类型只能选 1 张**（选了两张折扣券会 400）。
+> - 前端把所有选中券 ID 放进 `couponIds` 即可，**顺序无所谓**——后端会穷举所有先后组合，返回**折扣最大**的方案。
+> - **门槛（满减券 `minOrderAmount`）按订单原始总额判定**：达标与否在选券时即可确定，不会因为先用了折扣把金额压低而失效。任一选中券不达门槛/不适用本店，整单报 400（`message` 会指明是哪张券）。
+> - **店铺券只能用于该店订单**（全局券 `storeId=null` 不限）。当前订单为单店订单。
+> - **建议流程**：结算页用户勾选券 → 调 `POST /api/orders/coupon-preview` 实时展示「预计优惠 `discountAmount` / 实付 `payableAmount`」→ 用户确认后调 `POST /api/orders` 下单。下单时后端会**重新计算**，不依赖试算结果（试算的 `appliedCouponIds` 仅供展示最优顺序）。
 
 ### 模块六：收货地址（Customer）
 
@@ -288,11 +317,16 @@ api.interceptors.response.use(
 | 可领券列表 | GET `/api/coupon-groups` | 游客（领取需登录） | query: `page,size` | 分页：`{id,name,type,value,minOrderAmount,expireAt,totalCount,remainCount,storeId,storeName}` | — |
 | 领取优惠券 | POST `/api/coupon-groups/{groupId}/claim` | Customer | path | `{couponId}` | 券组不存在→404；已抢光/已领过/已过期→400 |
 | 我的优惠券 | GET `/api/coupons/mine` | Customer | query: `status`(UNUSED/USED/EXPIRED,可选) | **数组**：`[{id,groupName,type,value,minOrderAmount,expireAt,status,storeId}]` | — |
-| 发布店铺券 | POST `/api/stores/{storeId}/coupon-groups` | Staff（本店） | body: `name,type,value,minOrderAmount,totalCount,startAt,expireAt` | `{id}` | 非本店→403 |
-| 发布全局券 | POST `/api/coupon-groups` | Admin | body: 同上（无 storeId） | `{id}` | 非 Admin→403 |
+| 发布店铺券 | POST `/api/stores/{storeId}/coupon-groups` | Staff（本店） | body: `name,type,value,minOrderAmount,totalCount,startAt,expireAt` | `{id}` | 非本店→403；type/value/门槛不合法→400 |
+| 发布全局券 | POST `/api/coupon-groups` | Admin | body: 同上（无 storeId） | `{id}` | 非 Admin→403；type/value/门槛不合法→400 |
 | 删除券组 | DELETE `/api/coupon-groups/{groupId}` | Staff（本店券）/ Admin（全局券） | path | `null` | 越权→403；不存在→404 |
 
-> `type=DISCOUNT` 时 `value` 为折扣率（0.5=五折）；`type=AMOUNT_OFF` 时 `value` 为减免金额（元）。`storeId=null` 为全局券。
+> **券类型 `type`（已由 2 类拆为 3 类）：**
+> - `DISCOUNT`（折扣券）：`value` 为折扣率（0.5=五折，须 0<value<1）；`minOrderAmount` 任意。
+> - `FULL_REDUCTION`（满减券）：`value` 为减免金额（元，>0）；**`minOrderAmount` 必须 >0**（即门槛）。
+> - `DIRECT_OFF`（直减券）：`value` 为减免金额（元，>0）；**`minOrderAmount` 必须 =0**（无门槛）。
+>
+> `storeId=null` 为全局券。发布券表单请按上述约束做前端校验，否则后端返回 400。
 
 ### 模块九：商店管理（Admin）
 
@@ -310,8 +344,28 @@ api.interceptors.response.use(
 |---|---|---|---|---|---|
 | 门店订单报表 | GET `/api/stores/{storeId}/reports/orders` | Staff（本店） | query: `startDate,endDate`(yyyy-MM-dd,可选) | `{totalOrders,totalRevenue,averageOrderAmount,statusBreakdown{...},dailyRevenue[{date,revenue,orders}]}` | 非本店→403；起始晚于截止→400 |
 | 全局汇总报表 | GET `/api/admin/reports/orders` | Admin | query: 同上 | `{totalOrders,totalRevenue,storeBreakdown[{storeId,storeName,orders,revenue}],dailyRevenue[...]}` | 非 Admin→403 |
+| **门店报表导出 xlsx** | GET `/api/stores/{storeId}/reports/orders/export` | Staff（本店） | query: 同上 | **xlsx 二进制流**（非 JSON） | 非本店→403 |
+| **全局报表导出 xlsx** | GET `/api/admin/reports/orders/export` | Admin | query: 同上 | **xlsx 二进制流**（非 JSON） | 非 Admin→403 |
 
 > 日期缺省：`endDate` 默认今天，`startDate` 默认截止前 30 天。`totalOrders` 含所有状态，`totalRevenue` 仅统计 COMPLETED 订单。
+>
+> **导出接口（前端特殊处理）：** 返回的是 Excel 文件流，不是统一 JSON 结构，**不能走第 3 节的 JSON 响应拦截器**，否则会解析失败。请单独发起请求（仍需带 `Authorization` 头）并以 blob 接收下载：
+> - 工作簿含 3 个 Sheet：汇总 / 状态分布(门店)·门店分布(全局) / 每日收入。
+> - 响应头 `Content-Disposition` 自带文件名（如 `store-1-order-report.xlsx`）。
+> - 鉴权失败（非本店/非 Admin/未登录）时仍返回 **JSON 错误体**（此时不是文件流），前端可据 `Content-Type` 判断：是 `application/vnd.openxmlformats-...` 即文件、否则按 JSON 解析错误。
+>
+> ```js
+> // 示例：axios blob 下载（绕过 JSON 拦截器，单独实例）
+> const resp = await axios.get(`/api/stores/${storeId}/reports/orders/export`, {
+>   params: { startDate, endDate },
+>   headers: { Authorization: `Bearer ${token}` },
+>   responseType: 'blob',
+> });
+> const url = URL.createObjectURL(resp.data);
+> const a = document.createElement('a');
+> a.href = url; a.download = 'order-report.xlsx'; a.click();
+> URL.revokeObjectURL(url);
+> ```
 
 ---
 
@@ -327,8 +381,9 @@ api.interceptors.response.use(
 | | `SHIPPED` | 已发货（待收货） |
 | | `COMPLETED` | 已完成（已收货） |
 | | `CANCELLED` | 已取消 / 已退款 |
-| 优惠券类型 `type` | `DISCOUNT` | 折扣券，`value` 为折扣率（0.5=五折） |
-| | `AMOUNT_OFF` | 满减券，`value` 为减免金额（元） |
+| 优惠券类型 `type` | `DISCOUNT` | 折扣券，`value` 为折扣率（0.5=五折，0<value<1） |
+| | `FULL_REDUCTION` | 满减券（有门槛），`value` 为减免金额（元），`minOrderAmount`>0 |
+| | `DIRECT_OFF` | 直减券（无门槛），`value` 为减免金额（元），`minOrderAmount`=0 |
 | 优惠券状态 `status` | `UNUSED` | 未使用 |
 | | `USED` | 已使用 |
 | | `EXPIRED` | 已过期 |
@@ -372,6 +427,8 @@ PENDING_PAYMENT --pay--> PAID --ship(Staff)--> SHIPPED --confirm--> COMPLETED --
 2. 确保 `application.yml` 的数据源指向该库（默认端口 3305）。
 3. 启动应用——Flyway 会自动执行 `src/main/resources/db/migration/` 下的脚本：
    - `V1__init_schema.sql`：建 12 张表；
+   - `V2__add_product_version.sql`：商品加乐观锁 `version` 列；
+   - `V3__coupon_stacking.sql`：券类型拆分（满减/直减）+ 建 `order_coupon` 关联表（多券）；
    - `R__seed_data.sql`：灌入测试商店 / 账号 / 分类 / 商品。
 
 > 迁移脚本是单一可执行来源，原 `docs/schema.sql` / `docs/data.sql` 已迁入上述目录。
