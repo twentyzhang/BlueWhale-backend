@@ -556,7 +556,7 @@ null
 {
   "cartItemIds": [1, 2],
   "addressId": 3,
-  "couponId": 5
+  "couponIds": [5, 6]
 }
 ```
 
@@ -564,7 +564,7 @@ null
 |---|---|---|---|
 | cartItemIds | long[] | 是 | 要结算的购物车条目 ID 列表 |
 | addressId | long | 是 | 选择的收货地址 ID |
-| couponId | long | 否 | 使用的优惠券 ID（不使用则不传） |
+| couponIds | long[] | 否 | 使用的优惠券 ID 列表（不使用则不传或传空）。**同类型（折扣/满减/直减）至多一张，不同类型可叠加**；后台自动按最优顺序计价取最大折扣 |
 
 **响应 data：**
 ```json
@@ -575,6 +575,36 @@ null
   "payableAmount": 20.48
 }
 ```
+
+> 多券叠加规则与门槛判定见 `重要决策说明.md` #49。`discountAmount` 为最优顺序下的最大折扣。
+
+---
+
+### POST /api/orders/coupon-preview — 优惠券试算
+
+**权限：** 仅 Customer
+
+**说明：** 下单前预览最优优惠，不创建订单、不核销券。校验规则同下单（归属/状态/过期/店铺范围/同类型限一张/满减门槛）。
+
+**请求体：**
+```json
+{
+  "cartItemIds": [1, 2],
+  "couponIds": [5, 6]
+}
+```
+
+**响应 data：**
+```json
+{
+  "totalAmount": 23.04,
+  "discountAmount": 2.56,
+  "payableAmount": 20.48,
+  "appliedCouponIds": [5, 6]
+}
+```
+
+> `appliedCouponIds` 为取得最大折扣时券的应用顺序。下单时后台会重新计算，不依赖此试算结果。
 
 ---
 
@@ -919,7 +949,7 @@ null
 }
 ```
 
-> `type` 枚举：`DISCOUNT`（折扣券，value 为折扣率）/ `AMOUNT_OFF`（满减券，value 为减免金额）  
+> `type` 枚举：`DISCOUNT`（折扣券，value 为折扣率）/ `FULL_REDUCTION`（满减券，有门槛，value 为减免金额）/ `DIRECT_OFF`（直减券，无门槛，value 为减免金额）  
 > `storeId` 为 null 表示全局优惠券，否则为店铺优惠券。
 
 ---
@@ -973,7 +1003,7 @@ null
 ```json
 {
   "name": "夏日满减券",
-  "type": "AMOUNT_OFF",
+  "type": "FULL_REDUCTION",
   "value": 5.00,
   "minOrderAmount": 30.00,
   "totalCount": 200,
@@ -981,6 +1011,10 @@ null
   "expireAt": "2026-08-31T23:59:59"
 }
 ```
+
+| 字段 | 说明 |
+|---|---|
+| type | `DISCOUNT`（折扣，value 为 0~1 折扣率）/ `FULL_REDUCTION`（满减，`minOrderAmount` 必须 > 0）/ `DIRECT_OFF`（直减，`minOrderAmount` 必须为 0） |
 
 **响应 data：**
 ```json
@@ -1095,6 +1129,21 @@ null
 
 ---
 
+### GET /api/stores/{storeId}/reports/orders/export — 门店订单报表导出 xlsx
+
+**权限：** 仅 Staff（本店）
+
+**Query 参数：** 同门店订单报表（`startDate` / `endDate`，可选）
+
+**响应：** 二进制 xlsx 文件流（非 JSON）
+
+- `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+- `Content-Disposition: attachment; filename="store-{storeId}-order-report.xlsx"`
+- 工作簿含三个 Sheet：**汇总**（总订单数 / 总收入 / 均单价）、**状态分布**、**每日收入**。
+- 数据与 JSON 接口一致（共用同一查询与鉴权、缓存）。鉴权失败仍返回统一 JSON 错误体。
+
+---
+
 ### GET /api/admin/reports/orders — 全局汇总报表
 
 **权限：** 仅 Admin
@@ -1119,6 +1168,20 @@ null
   ]
 }
 ```
+
+---
+
+### GET /api/admin/reports/orders/export — 全局汇总报表导出 xlsx
+
+**权限：** 仅 Admin
+
+**Query 参数：** 同全局汇总报表（`startDate` / `endDate`，可选）
+
+**响应：** 二进制 xlsx 文件流（非 JSON）
+
+- `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+- `Content-Disposition: attachment; filename="global-order-report.xlsx"`
+- 工作簿含三个 Sheet：**汇总**（总订单数 / 总收入）、**门店分布**、**每日收入**。
 
 ---
 
@@ -1149,6 +1212,7 @@ null
 | | PUT | `/api/cart/items/{itemId}` | Customer |
 | | DELETE | `/api/cart/items/{itemId}` | Customer |
 | **订单** | POST | `/api/orders` | Customer |
+| | POST | `/api/orders/coupon-preview` | Customer |
 | | GET | `/api/orders` | Customer |
 | | GET | `/api/orders/{orderId}` | Customer/Staff |
 | | POST | `/api/orders/{orderId}/pay` | Customer |
@@ -1174,4 +1238,6 @@ null
 | | PUT | `/api/stores/{storeId}` | Admin |
 | | GET | `/api/admin/stores` | Admin |
 | **报表** | GET | `/api/stores/{storeId}/reports/orders` | Staff |
+| | GET | `/api/stores/{storeId}/reports/orders/export` | Staff |
 | | GET | `/api/admin/reports/orders` | Admin |
+| | GET | `/api/admin/reports/orders/export` | Admin |

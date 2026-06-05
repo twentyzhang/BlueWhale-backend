@@ -21,10 +21,10 @@ public class CouponGroup {
 
     private String name;
 
-    /** 类型：DISCOUNT（折扣券）/ AMOUNT_OFF（满减券） */
+    /** 类型：DISCOUNT（折扣券）/ FULL_REDUCTION（满减券）/ DIRECT_OFF（直减券） */
     private String type;
 
-    /** 折扣券：折扣率（如 0.8 表示八折）；满减券：减免金额（元） */
+    /** 折扣券：折扣率（如 0.8 表示八折）；满减/直减券：减免金额（元） */
     private BigDecimal value;
 
     /** 最低使用金额，0 表示无门槛 */

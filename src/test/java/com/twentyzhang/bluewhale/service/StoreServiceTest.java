@@ -277,6 +277,25 @@ class StoreServiceTest extends BaseServiceTest {
         }
 
         @Test
+        @DisplayName("Admin 更新商店：name 与 logo 均传入时全部更新")
+        void allFieldsUpdated() {
+            mockAuthUser(1L, AuthUtil.ROLE_ADMIN, null);
+
+            Store store = Store.builder().id(1L).name("旧名").logo("old.png").build();
+            UpdateStoreRequest req = new UpdateStoreRequest();
+            req.setName("新名");
+            req.setLogo("new.png");
+
+            when(storeMapper.selectById(1L)).thenReturn(store);
+            when(storeMapper.updateById(anyStore())).thenReturn(1);
+
+            storeService.updateStore(1L, req);
+
+            assertEquals("新名",  store.getName());
+            assertEquals("new.png", store.getLogo());
+        }
+
+        @Test
         @DisplayName("商店不存在时抛出 code=404 的 BusinessException")
         void notFound() {
             mockAuthUser(1L, AuthUtil.ROLE_ADMIN, null);

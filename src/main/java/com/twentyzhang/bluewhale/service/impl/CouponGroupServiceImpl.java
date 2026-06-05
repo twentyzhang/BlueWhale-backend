@@ -139,15 +139,32 @@ public class CouponGroupServiceImpl extends ServiceImpl<CouponGroupMapper, Coupo
         if (req.getTotalCount() <= 0) {
             throw new BusinessException("总数量必须大于 0");
         }
-        if ("DISCOUNT".equals(req.getType())) {
-            BigDecimal v = req.getValue();
-            if (v.compareTo(BigDecimal.ZERO) <= 0 || v.compareTo(BigDecimal.ONE) >= 0) {
-                throw new BusinessException("DISCOUNT 类型 value 必须在 0 到 1 之间（不含两端）");
+        switch (req.getType()) {
+            case "DISCOUNT" -> {
+                BigDecimal v = req.getValue();
+                if (v.compareTo(BigDecimal.ZERO) <= 0 || v.compareTo(BigDecimal.ONE) >= 0) {
+                    throw new BusinessException("DISCOUNT 类型 value 必须在 0 到 1 之间（不含两端）");
+                }
             }
-        } else if ("AMOUNT_OFF".equals(req.getType())) {
-            if (req.getValue().compareTo(BigDecimal.ZERO) <= 0) {
-                throw new BusinessException("AMOUNT_OFF 类型 value 必须大于 0");
+            case "FULL_REDUCTION" -> {
+                if (req.getValue().compareTo(BigDecimal.ZERO) <= 0) {
+                    throw new BusinessException("FULL_REDUCTION 类型 value 必须大于 0");
+                }
+                if (req.getMinOrderAmount() == null
+                        || req.getMinOrderAmount().compareTo(BigDecimal.ZERO) <= 0) {
+                    throw new BusinessException("FULL_REDUCTION（满减）类型 minOrderAmount 必须大于 0");
+                }
             }
+            case "DIRECT_OFF" -> {
+                if (req.getValue().compareTo(BigDecimal.ZERO) <= 0) {
+                    throw new BusinessException("DIRECT_OFF 类型 value 必须大于 0");
+                }
+                if (req.getMinOrderAmount() != null
+                        && req.getMinOrderAmount().compareTo(BigDecimal.ZERO) > 0) {
+                    throw new BusinessException("DIRECT_OFF（直减）类型无门槛，minOrderAmount 必须为 0");
+                }
+            }
+            default -> { /* @Pattern 已拦截非法 type，此处不再重复 */ }
         }
     }
 

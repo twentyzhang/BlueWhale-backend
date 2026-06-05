@@ -17,7 +17,8 @@ public class CreateCouponGroupRequest {
     private String name;
 
     @NotNull(message = "优惠券类型不能为空")
-    @Pattern(regexp = "^(DISCOUNT|AMOUNT_OFF)$", message = "优惠券类型须为 DISCOUNT 或 AMOUNT_OFF")
+    @Pattern(regexp = "^(DISCOUNT|FULL_REDUCTION|DIRECT_OFF)$",
+            message = "优惠券类型须为 DISCOUNT（折扣）/ FULL_REDUCTION（满减）/ DIRECT_OFF（直减）")
     private String type;
 
     @NotNull(message = "优惠值不能为空")

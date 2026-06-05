@@ -86,7 +86,7 @@ class CouponGroupServiceTest extends BaseServiceTest {
     private static CreateCouponGroupRequest amountOffReq(BigDecimal value) {
         CreateCouponGroupRequest r = new CreateCouponGroupRequest();
         r.setName("满减券");
-        r.setType("AMOUNT_OFF");
+        r.setType("FULL_REDUCTION");
         r.setValue(value);
         r.setMinOrderAmount(new BigDecimal("50.00"));
         r.setTotalCount(50);
@@ -198,13 +198,13 @@ class CouponGroupServiceTest extends BaseServiceTest {
         }
 
         @Test
-        @DisplayName("AMOUNT_OFF 类型 value 小于等于 0 时抛出 BusinessException")
-        void amountOffZeroValue_throws() {
+        @DisplayName("FULL_REDUCTION 类型 value 小于等于 0 时抛出 BusinessException")
+        void fullReductionZeroValue_throws() {
             mockAuthUser(1L, AuthUtil.ROLE_STAFF, 100L);
 
             BusinessException ex = assertThrows(BusinessException.class,
                     () -> couponGroupService.createStoreCouponGroup(100L, amountOffReq(BigDecimal.ZERO)));
-            assertTrue(ex.getMessage().contains("AMOUNT_OFF"));
+            assertTrue(ex.getMessage().contains("FULL_REDUCTION"));
         }
 
         @Test

@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.twentyzhang.bluewhale.dto.CancelOrderResponse;
 import com.twentyzhang.bluewhale.dto.ConfirmOrderResponse;
+import com.twentyzhang.bluewhale.dto.CouponPreviewRequest;
+import com.twentyzhang.bluewhale.dto.CouponPreviewResponse;
 import com.twentyzhang.bluewhale.dto.CreateOrderRequest;
 import com.twentyzhang.bluewhale.dto.CreateOrderResponse;
 import com.twentyzhang.bluewhale.dto.OrderDetailResponse;
@@ -24,6 +26,13 @@ public interface OrderService extends IService<Order> {
      * 对应 POST /api/orders
      */
     CreateOrderResponse createOrder(Long userId, CreateOrderRequest request);
+
+    /**
+     * 下单前试算优惠券：传待结算购物车条目与候选券，返回最优叠加顺序下的折扣与实付。
+     * 不创建订单、不核销券。校验规则同 createOrder（归属/状态/过期/店铺范围/同类型限一张/满减门槛）。
+     * 对应 POST /api/orders/coupon-preview
+     */
+    CouponPreviewResponse previewCoupon(Long userId, CouponPreviewRequest request);
 
     /**
      * 分页获取当前用户的订单列表，可按状态筛选。

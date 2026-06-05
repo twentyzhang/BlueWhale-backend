@@ -39,6 +39,7 @@ class OrderServiceTest extends BaseServiceTest {
     @Mock private CouponMapper     couponMapper;
     @Mock private CouponGroupMapper couponGroupMapper;
     @Mock private OrderItemMapper  orderItemMapper;
+    @Mock private OrderCouponMapper orderCouponMapper;
 
     @InjectMocks
     private OrderServiceImpl orderService;
@@ -82,11 +83,11 @@ class OrderServiceTest extends BaseServiceTest {
     }
 
     private static CreateOrderRequest orderReq(List<Long> cartItemIds, Long addressId,
-                                                Long couponId) {
+                                                List<Long> couponIds) {
         CreateOrderRequest r = new CreateOrderRequest();
         r.setCartItemIds(cartItemIds);
         r.setAddressId(addressId);
-        r.setCouponId(couponId);
+        r.setCouponIds(couponIds);
         return r;
     }
 
@@ -140,7 +141,7 @@ class OrderServiceTest extends BaseServiceTest {
             CreateOrderResponse resp = orderService.createOrder(1L, orderReq(List.of(1L, 2L), 3L, null));
 
             assertEquals(new BigDecimal("40.00"), resp.getTotalAmount());
-            assertEquals(BigDecimal.ZERO,          resp.getDiscountAmount());
+            assertEquals(new BigDecimal("0.00"),  resp.getDiscountAmount());
             assertEquals(new BigDecimal("40.00"), resp.getPayableAmount());
             assertEquals(1001L, resp.getOrderId());
 
@@ -153,8 +154,8 @@ class OrderServiceTest extends BaseServiceTest {
         }
 
         @Test
-        @DisplayName("使用 AMOUNT_OFF 优惠券（满30减5），验证折扣金额计算正确")
-        void success_amountOffCoupon() {
+        @DisplayName("使用 FULL_REDUCTION 满减券（满30减5），验证折扣金额计算正确")
+        void success_fullReductionCoupon() {
             mockAuthUser(1L, AuthUtil.ROLE_CUSTOMER, null);
             // 3 * 15 = 45，满30减5 → payable = 40
             stubBasicFlow(
@@ -164,16 +165,19 @@ class OrderServiceTest extends BaseServiceTest {
             when(couponMapper.selectById(5L)).thenReturn(
                     Coupon.builder().id(5L).userId(1L).groupId(20L).status("UNUSED").build());
             when(couponGroupMapper.selectById(20L)).thenReturn(
-                    CouponGroup.builder().id(20L).type("AMOUNT_OFF")
+                    CouponGroup.builder().id(20L).type("FULL_REDUCTION")
                             .value(new BigDecimal("5.00"))
                             .minOrderAmount(new BigDecimal("30.00")).build());
             when(couponMapper.updateById(anyCoupon())).thenReturn(1);
+            when(orderCouponMapper.insert(any(OrderCoupon.class))).thenReturn(1);
 
-            CreateOrderResponse resp = orderService.createOrder(1L, orderReq(List.of(1L), 3L, 5L));
+            CreateOrderResponse resp = orderService.createOrder(1L, orderReq(List.of(1L), 3L, List.of(5L)));
 
             assertEquals(new BigDecimal("45.00"), resp.getTotalAmount());
             assertEquals(new BigDecimal("5.00"),  resp.getDiscountAmount());
             assertEquals(new BigDecimal("40.00"), resp.getPayableAmount());
+            // 多券核销：写入 order_coupon 关联
+            verify(orderCouponMapper).insert(any(OrderCoupon.class));
         }
 
         @Test
@@ -192,12 +196,71 @@ class OrderServiceTest extends BaseServiceTest {
                             .value(new BigDecimal("0.80"))
                             .minOrderAmount(BigDecimal.ZERO).build());
             when(couponMapper.updateById(anyCoupon())).thenReturn(1);
+            when(orderCouponMapper.insert(any(OrderCoupon.class))).thenReturn(1);
 
-            CreateOrderResponse resp = orderService.createOrder(1L, orderReq(List.of(1L), 3L, 5L));
+            CreateOrderResponse resp = orderService.createOrder(1L, orderReq(List.of(1L), 3L, List.of(5L)));
 
             assertEquals(new BigDecimal("40.00"), resp.getTotalAmount());
             assertEquals(new BigDecimal("8.00"),  resp.getDiscountAmount());
             assertEquals(new BigDecimal("32.00"), resp.getPayableAmount());
+        }
+
+        @Test
+        @DisplayName("叠加 DISCOUNT(8折) + FULL_REDUCTION(满30减10)：先折后减最优，discount=18")
+        void success_stackedCoupons_optimalOrder() {
+            mockAuthUser(1L, AuthUtil.ROLE_CUSTOMER, null);
+            // total = 50；先8折→40 再减10→30（discount 20）优于先减10→40 再8折→32（discount 18）
+            stubBasicFlow(
+                    List.of(cartItem(1L, 10L, 101L, 1)),
+                    List.of(product(101L, "商品A", new BigDecimal("50.00"), 10, 100L))
+            );
+            when(couponMapper.selectById(5L)).thenReturn(
+                    Coupon.builder().id(5L).userId(1L).groupId(20L).status("UNUSED").build());
+            when(couponMapper.selectById(6L)).thenReturn(
+                    Coupon.builder().id(6L).userId(1L).groupId(21L).status("UNUSED").build());
+            when(couponGroupMapper.selectById(20L)).thenReturn(
+                    CouponGroup.builder().id(20L).type("DISCOUNT")
+                            .value(new BigDecimal("0.80")).minOrderAmount(BigDecimal.ZERO).build());
+            when(couponGroupMapper.selectById(21L)).thenReturn(
+                    CouponGroup.builder().id(21L).type("FULL_REDUCTION")
+                            .value(new BigDecimal("10.00")).minOrderAmount(new BigDecimal("30.00")).build());
+            when(couponMapper.updateById(anyCoupon())).thenReturn(1);
+            when(orderCouponMapper.insert(any(OrderCoupon.class))).thenReturn(1);
+
+            CreateOrderResponse resp = orderService.createOrder(1L, orderReq(List.of(1L), 3L, List.of(5L, 6L)));
+
+            assertEquals(new BigDecimal("50.00"), resp.getTotalAmount());
+            assertEquals(new BigDecimal("20.00"), resp.getDiscountAmount()); // 先折后减
+            assertEquals(new BigDecimal("30.00"), resp.getPayableAmount());
+            verify(orderCouponMapper, times(2)).insert(any(OrderCoupon.class));
+        }
+
+        @Test
+        @DisplayName("同类型两张券（两张 DISCOUNT）时抛出 BusinessException，不创建订单")
+        void sameTypeCoupons_throws() {
+            mockAuthUser(1L, AuthUtil.ROLE_CUSTOMER, null);
+            // 校验阶段即抛出，不进入写库，故仅手动 stub 校验所需依赖（避免严格模式 UnnecessaryStubbing）
+            when(cartItemMapper.selectBatchIds(any())).thenReturn(List.of(cartItem(1L, 10L, 101L, 1)));
+            when(cartMapper.selectOne(any())).thenReturn(Cart.builder().id(10L).userId(1L).build());
+            when(userAddressMapper.selectById(3L)).thenReturn(address(3L, 1L));
+            when(productMapper.selectBatchIds(any())).thenReturn(
+                    List.of(product(101L, "商品A", new BigDecimal("50.00"), 10, 100L)));
+            when(couponMapper.selectById(5L)).thenReturn(
+                    Coupon.builder().id(5L).userId(1L).groupId(20L).status("UNUSED").build());
+            when(couponMapper.selectById(6L)).thenReturn(
+                    Coupon.builder().id(6L).userId(1L).groupId(21L).status("UNUSED").build());
+            when(couponGroupMapper.selectById(20L)).thenReturn(
+                    CouponGroup.builder().id(20L).type("DISCOUNT")
+                            .value(new BigDecimal("0.80")).minOrderAmount(BigDecimal.ZERO).build());
+            when(couponGroupMapper.selectById(21L)).thenReturn(
+                    CouponGroup.builder().id(21L).type("DISCOUNT")
+                            .value(new BigDecimal("0.90")).minOrderAmount(BigDecimal.ZERO).build());
+
+            BusinessException ex = assertThrows(BusinessException.class,
+                    () -> orderService.createOrder(1L, orderReq(List.of(1L), 3L, List.of(5L, 6L))));
+
+            assertTrue(ex.getMessage().contains("同类型"));
+            verify(orderMapper, never()).insert(anyOrder());
         }
 
         @Test
@@ -249,7 +312,7 @@ class OrderServiceTest extends BaseServiceTest {
                     Coupon.builder().id(5L).userId(1L).groupId(20L).status("USED").build());
 
             BusinessException ex = assertThrows(BusinessException.class,
-                    () -> orderService.createOrder(1L, orderReq(List.of(1L), 3L, 5L)));
+                    () -> orderService.createOrder(1L, orderReq(List.of(1L), 3L, List.of(5L))));
 
             assertTrue(ex.getMessage().contains("USED"));
             verify(orderMapper, never()).insert(anyOrder());
@@ -269,12 +332,12 @@ class OrderServiceTest extends BaseServiceTest {
             when(couponMapper.selectById(5L)).thenReturn(
                     Coupon.builder().id(5L).userId(1L).groupId(20L).status("UNUSED").build());
             when(couponGroupMapper.selectById(20L)).thenReturn(
-                    CouponGroup.builder().id(20L).type("AMOUNT_OFF")
+                    CouponGroup.builder().id(20L).type("FULL_REDUCTION")
                             .value(new BigDecimal("10.00"))
                             .minOrderAmount(new BigDecimal("50.00")).build());
 
             BusinessException ex = assertThrows(BusinessException.class,
-                    () -> orderService.createOrder(1L, orderReq(List.of(1L), 3L, 5L)));
+                    () -> orderService.createOrder(1L, orderReq(List.of(1L), 3L, List.of(5L))));
 
             assertTrue(ex.getMessage().contains("50"), "错误消息应含门槛金额，实际：" + ex.getMessage());
             verify(orderMapper, never()).insert(anyOrder());
@@ -321,6 +384,41 @@ class OrderServiceTest extends BaseServiceTest {
             assertTrue(ex.getMessage().contains("库存更新失败"), "实际：" + ex.getMessage());
             verify(productMapper, times(3)).updateStockWithVersion(eq(101L), eq(2), any()); // 重试 3 次
             verify(orderMapper, never()).insert(anyOrder());
+        }
+    }
+
+    // ── previewCoupon ─────────────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("previewCoupon")
+    class PreviewCouponTests {
+
+        @Test
+        @DisplayName("试算折扣券：返回最优折扣与实付，不创建订单/不核销券")
+        void previews_withoutWriting() {
+            mockAuthUser(1L, AuthUtil.ROLE_CUSTOMER, null);
+            when(cartItemMapper.selectBatchIds(any())).thenReturn(List.of(cartItem(1L, 10L, 101L, 2)));
+            when(cartMapper.selectOne(any())).thenReturn(Cart.builder().id(10L).userId(1L).build());
+            when(productMapper.selectBatchIds(any())).thenReturn(
+                    List.of(product(101L, "商品A", new BigDecimal("20.00"), 10, 100L)));
+            when(couponMapper.selectById(5L)).thenReturn(
+                    Coupon.builder().id(5L).userId(1L).groupId(20L).status("UNUSED").build());
+            when(couponGroupMapper.selectById(20L)).thenReturn(
+                    CouponGroup.builder().id(20L).type("DISCOUNT")
+                            .value(new BigDecimal("0.80")).minOrderAmount(BigDecimal.ZERO).build());
+
+            CouponPreviewRequest req = new CouponPreviewRequest();
+            req.setCartItemIds(List.of(1L));
+            req.setCouponIds(List.of(5L));
+            CouponPreviewResponse resp = orderService.previewCoupon(1L, req);
+
+            assertEquals(new BigDecimal("40.00"), resp.getTotalAmount());
+            assertEquals(new BigDecimal("8.00"),  resp.getDiscountAmount());
+            assertEquals(new BigDecimal("32.00"), resp.getPayableAmount());
+            assertEquals(List.of(5L), resp.getAppliedCouponIds());
+            // 不落库、不核销
+            verify(orderMapper, never()).insert(anyOrder());
+            verify(couponMapper, never()).updateById(anyCoupon());
         }
     }
 

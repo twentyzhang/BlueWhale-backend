@@ -16,7 +16,7 @@ public class MyCouponResponse {
 
     private Long id;
     private String groupName;
-    /** DISCOUNT / AMOUNT_OFF */
+    /** DISCOUNT / FULL_REDUCTION / DIRECT_OFF */
     private String type;
     private BigDecimal value;
     private BigDecimal minOrderAmount;

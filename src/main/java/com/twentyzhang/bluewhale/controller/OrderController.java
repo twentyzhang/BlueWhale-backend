@@ -5,6 +5,8 @@ import com.twentyzhang.bluewhale.common.AuthUser;
 import com.twentyzhang.bluewhale.common.Result;
 import com.twentyzhang.bluewhale.dto.CancelOrderResponse;
 import com.twentyzhang.bluewhale.dto.ConfirmOrderResponse;
+import com.twentyzhang.bluewhale.dto.CouponPreviewRequest;
+import com.twentyzhang.bluewhale.dto.CouponPreviewResponse;
 import com.twentyzhang.bluewhale.dto.CreateOrderRequest;
 import com.twentyzhang.bluewhale.dto.CreateOrderResponse;
 import com.twentyzhang.bluewhale.dto.OrderDetailResponse;
@@ -35,6 +37,12 @@ public class OrderController {
     @PostMapping
     public Result<CreateOrderResponse> createOrder(@RequestBody @Valid CreateOrderRequest request) {
         return Result.success(orderService.createOrder(currentUser().userId(), request));
+    }
+
+    // 需要鉴权 仅 Customer —— 下单前优惠券试算（不落库）
+    @PostMapping("/coupon-preview")
+    public Result<CouponPreviewResponse> previewCoupon(@RequestBody @Valid CouponPreviewRequest request) {
+        return Result.success(orderService.previewCoupon(currentUser().userId(), request));
     }
 
     // 需要鉴权 仅 Customer

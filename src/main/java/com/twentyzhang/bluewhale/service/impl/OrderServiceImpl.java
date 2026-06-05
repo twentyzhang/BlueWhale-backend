@@ -8,6 +8,8 @@ import com.twentyzhang.bluewhale.common.Result;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.twentyzhang.bluewhale.dto.CancelOrderResponse;
 import com.twentyzhang.bluewhale.dto.ConfirmOrderResponse;
+import com.twentyzhang.bluewhale.dto.CouponPreviewRequest;
+import com.twentyzhang.bluewhale.dto.CouponPreviewResponse;
 import com.twentyzhang.bluewhale.dto.CreateOrderRequest;
 import com.twentyzhang.bluewhale.dto.CreateOrderResponse;
 import com.twentyzhang.bluewhale.dto.OrderAddressResponse;
@@ -24,6 +26,7 @@ import com.twentyzhang.bluewhale.entity.CartItem;
 import com.twentyzhang.bluewhale.entity.Coupon;
 import com.twentyzhang.bluewhale.entity.CouponGroup;
 import com.twentyzhang.bluewhale.entity.Order;
+import com.twentyzhang.bluewhale.entity.OrderCoupon;
 import com.twentyzhang.bluewhale.entity.OrderItem;
 import com.twentyzhang.bluewhale.entity.Product;
 import com.twentyzhang.bluewhale.entity.Store;
@@ -33,6 +36,7 @@ import com.twentyzhang.bluewhale.mapper.CartItemMapper;
 import com.twentyzhang.bluewhale.mapper.CartMapper;
 import com.twentyzhang.bluewhale.mapper.CouponGroupMapper;
 import com.twentyzhang.bluewhale.mapper.CouponMapper;
+import com.twentyzhang.bluewhale.mapper.OrderCouponMapper;
 import com.twentyzhang.bluewhale.mapper.OrderItemMapper;
 import com.twentyzhang.bluewhale.mapper.OrderMapper;
 import com.twentyzhang.bluewhale.mapper.ProductMapper;
@@ -40,17 +44,21 @@ import com.twentyzhang.bluewhale.mapper.StoreMapper;
 import com.twentyzhang.bluewhale.mapper.UserAddressMapper;
 import com.twentyzhang.bluewhale.service.OrderService;
 import com.twentyzhang.bluewhale.util.AuthUtil;
+import com.twentyzhang.bluewhale.util.CouponCalculator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -65,6 +73,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     private final CouponMapper       couponMapper;
     private final CouponGroupMapper  couponGroupMapper;
     private final OrderItemMapper    orderItemMapper;
+    private final OrderCouponMapper  orderCouponMapper;
 
     // ── createOrder ───────────────────────────────────────────────────────────
 
@@ -113,58 +122,14 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             }
         }
 
-        // 4. 验证优惠券（如有）
-        Coupon coupon = null;
-        CouponGroup couponGroup = null;
-        if (request.getCouponId() != null) {
-            coupon = couponMapper.selectById(request.getCouponId());
-            if (coupon == null || !userId.equals(coupon.getUserId())) {
-                throw new BusinessException(Result.CODE_NOT_FOUND, "优惠券不存在");
-            }
-            if (!"UNUSED".equals(coupon.getStatus())) {
-                throw new BusinessException("优惠券不可用，当前状态：" + coupon.getStatus());
-            }
-            couponGroup = couponGroupMapper.selectById(coupon.getGroupId());
-            if (couponGroup == null
-                    || (couponGroup.getExpireAt() != null
-                            && couponGroup.getExpireAt().isBefore(LocalDateTime.now()))) {
-                throw new BusinessException("优惠券已过期");
-            }
-        }
-
-        // 5. 计算金额
-        BigDecimal totalAmount = cartItems.stream()
-                .map(item -> productMap.get(item.getProductId()).getPrice()
-                        .multiply(BigDecimal.valueOf(item.getQuantity())))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        BigDecimal discountAmount = BigDecimal.ZERO;
-        if (couponGroup != null) {
-            if ("AMOUNT_OFF".equals(couponGroup.getType())) {
-                // 满减券：检查最低使用金额门槛
-                if (couponGroup.getMinOrderAmount() != null
-                        && couponGroup.getMinOrderAmount().compareTo(BigDecimal.ZERO) > 0
-                        && totalAmount.compareTo(couponGroup.getMinOrderAmount()) < 0) {
-                    throw new BusinessException(
-                            "订单金额未达优惠券最低使用金额 " + couponGroup.getMinOrderAmount() + " 元");
-                }
-                discountAmount = couponGroup.getValue();
-            } else if ("DISCOUNT".equals(couponGroup.getType())) {
-                // 折扣券：discountAmount = totalAmount × (1 - value)
-                discountAmount = totalAmount
-                        .multiply(BigDecimal.ONE.subtract(couponGroup.getValue()))
-                        .setScale(2, RoundingMode.HALF_UP);
-            }
-        }
-
-        BigDecimal payableAmount = totalAmount.subtract(discountAmount);
-        // payableAmount 最小 0.01，不能为负
-        if (payableAmount.compareTo(new BigDecimal("0.01")) < 0) {
-            payableAmount = new BigDecimal("0.01");
-        }
-
-        // storeId 从商品中取（同一购物车下的商品应属同一店铺）
+        // 4. 计算商品总额，并确定订单所属店铺（同一购物车商品应属同一店铺）
+        BigDecimal totalAmount = computeTotal(cartItems, productMap);
         Long storeId = productMap.values().iterator().next().getStoreId();
+
+        // 5. 校验并计价优惠券（多券叠加，后台按最优顺序计算最大折扣）
+        CouponResolution resolution = resolveCoupons(userId, totalAmount, storeId, request.getCouponIds());
+        BigDecimal discountAmount = resolution.result().discountAmount();
+        BigDecimal payableAmount  = resolution.result().payableAmount();
 
         // ─── Phase 2：所有写操作（全部校验通过后统一执行）──────────────────
 
@@ -181,7 +146,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 .totalAmount(totalAmount)
                 .discountAmount(discountAmount)
                 .payableAmount(payableAmount)
-                .couponId(request.getCouponId())
+                // 多券叠加改用 order_coupon 关联表记录，旧的单 coupon_id 字段不再写入（保留兼容历史数据）
                 .addrReceiverName(address.getReceiverName())
                 .addrPhone(address.getPhone())
                 .addrProvince(address.getProvince())
@@ -206,12 +171,16 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                     .build());
         }
 
-        // 9. 核销优惠券
-        if (coupon != null) {
-            coupon.setStatus("USED");
-            coupon.setUsedAt(LocalDateTime.now());
-            coupon.setOrderId(order.getId());
-            couponMapper.updateById(coupon);
+        // 9. 核销优惠券：逐张标记 USED，并写入 order_coupon 关联（支持多券）
+        for (Coupon c : resolution.coupons()) {
+            c.setStatus("USED");
+            c.setUsedAt(LocalDateTime.now());
+            c.setOrderId(order.getId());
+            couponMapper.updateById(c);
+            orderCouponMapper.insert(OrderCoupon.builder()
+                    .orderId(order.getId())
+                    .couponId(c.getId())
+                    .build());
         }
 
         // 10. 从购物车删除已结算条目
@@ -222,6 +191,45 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 .totalAmount(totalAmount)
                 .discountAmount(discountAmount)
                 .payableAmount(payableAmount)
+                .build();
+    }
+
+    // ── previewCoupon（下单前试算，不落库不核销）────────────────────────────────
+
+    @Override
+    public CouponPreviewResponse previewCoupon(Long userId, CouponPreviewRequest request) {
+        AuthUtil.requireRole(AuthUtil.ROLE_CUSTOMER);
+
+        // 校验购物车条目存在且归属当前用户（与 createOrder 一致，但不校验库存/不写库）
+        List<CartItem> cartItems = cartItemMapper.selectBatchIds(request.getCartItemIds());
+        if (cartItems.size() != request.getCartItemIds().size()) {
+            throw new BusinessException("部分购物车条目不存在");
+        }
+        Cart cart = cartMapper.selectOne(
+                new LambdaQueryWrapper<Cart>().eq(Cart::getUserId, userId));
+        if (cart == null || cartItems.stream().anyMatch(i -> !cart.getId().equals(i.getCartId()))) {
+            throw new BusinessException(Result.CODE_FORBIDDEN, "购物车条目不属于当前用户");
+        }
+
+        // 加载商品算总额与所属店铺
+        List<Long> productIds = cartItems.stream()
+                .map(CartItem::getProductId).collect(Collectors.toList());
+        Map<Long, Product> productMap = new HashMap<>();
+        productMapper.selectBatchIds(productIds).forEach(p -> productMap.put(p.getId(), p));
+        for (CartItem item : cartItems) {
+            if (productMap.get(item.getProductId()) == null) {
+                throw new BusinessException("商品 ID=" + item.getProductId() + " 不存在或已下架");
+            }
+        }
+        BigDecimal totalAmount = computeTotal(cartItems, productMap);
+        Long storeId = productMap.values().iterator().next().getStoreId();
+
+        CouponResolution resolution = resolveCoupons(userId, totalAmount, storeId, request.getCouponIds());
+        return CouponPreviewResponse.builder()
+                .totalAmount(totalAmount)
+                .discountAmount(resolution.result().discountAmount())
+                .payableAmount(resolution.result().payableAmount())
+                .appliedCouponIds(resolution.result().appliedCouponIds())
                 .build();
     }
 
@@ -332,8 +340,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         // 下单时库存已扣减，取消时无论是否已支付都需恢复
         restoreInventory(orderId);
 
-        // 若使用了优惠券，恢复为 UNUSED
-        restoreCoupon(order.getCouponId());
+        // 若使用了优惠券，恢复为 UNUSED（多券）
+        restoreCoupons(orderId, order.getCouponId());
 
         order.setStatus("CANCELLED");
         order.setCancelledAt(LocalDateTime.now());
@@ -377,7 +385,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         }
 
         restoreInventory(orderId);
-        restoreCoupon(order.getCouponId());
+        restoreCoupons(orderId, order.getCouponId());
 
         LocalDateTime now = LocalDateTime.now();
         order.setStatus("CANCELLED");
@@ -490,7 +498,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
         // 与手动取消一致：恢复库存（下单即扣减）、恢复优惠券（下单即标记 USED）
         restoreInventory(fresh.getId());
-        restoreCoupon(fresh.getCouponId());
+        restoreCoupons(fresh.getId(), fresh.getCouponId());
 
         fresh.setStatus("CANCELLED");
         fresh.setCancelledAt(LocalDateTime.now());
@@ -554,15 +562,96 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     }
 
     /**
-     * 将指定优惠券恢复为 UNUSED 状态并清空使用记录。
+     * 将订单使用的所有优惠券恢复为 UNUSED 并清空使用记录。
+     * 来源 = order_coupon 关联表（多券）∪ orders.coupon_id（兼容历史单券订单）。
      * 使用 UpdateWrapper 以支持显式 SET NULL（updateById 默认跳过 null 字段）。
      */
-    private void restoreCoupon(Long couponId) {
-        if (couponId == null) return;
-        couponMapper.update(null, new UpdateWrapper<Coupon>()
-                .eq("id", couponId)
-                .set("status", "UNUSED")
-                .set("used_at", null)
-                .set("order_id", null));
+    private void restoreCoupons(Long orderId, Long legacyCouponId) {
+        Set<Long> couponIds = new LinkedHashSet<>();
+        if (legacyCouponId != null) {
+            couponIds.add(legacyCouponId);
+        }
+        orderCouponMapper.selectList(
+                        new LambdaQueryWrapper<OrderCoupon>().eq(OrderCoupon::getOrderId, orderId))
+                .forEach(oc -> couponIds.add(oc.getCouponId()));
+
+        for (Long couponId : couponIds) {
+            couponMapper.update(null, new UpdateWrapper<Coupon>()
+                    .eq("id", couponId)
+                    .set("status", "UNUSED")
+                    .set("used_at", null)
+                    .set("order_id", null));
+        }
+    }
+
+    /** 计算购物车选中条目的商品总额（单价快照 × 数量求和）。 */
+    private BigDecimal computeTotal(List<CartItem> cartItems, Map<Long, Product> productMap) {
+        return cartItems.stream()
+                .map(item -> productMap.get(item.getProductId()).getPrice()
+                        .multiply(BigDecimal.valueOf(item.getQuantity())))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /** 校验后的优惠券与最优计价结果。 */
+    private record CouponResolution(List<Coupon> coupons, CouponCalculator.Result result) {}
+
+    /**
+     * 校验候选优惠券并计算最优叠加折扣。规则：
+     * <ul>
+     *   <li>每张券须属当前用户、状态 UNUSED、所属券组未过期；</li>
+     *   <li>店铺券仅适用于本店订单，全局券（storeId=null）不限；</li>
+     *   <li>同类型（DISCOUNT/FULL_REDUCTION/DIRECT_OFF）至多一张，不同类型可叠加；</li>
+     *   <li>满减门槛按<strong>原始订单总额</strong>判定（达标后顺序优化不再影响资格）。</li>
+     * </ul>
+     * 任一校验失败即抛出 BusinessException（不写库）。无券时返回零折扣结果。
+     */
+    private CouponResolution resolveCoupons(Long userId, BigDecimal totalAmount,
+                                            Long orderStoreId, List<Long> couponIds) {
+        if (couponIds == null || couponIds.isEmpty()) {
+            return new CouponResolution(List.of(), CouponCalculator.calculate(totalAmount, List.of()));
+        }
+        // 去重：同一张券不能传多次
+        Set<Long> distinct = new LinkedHashSet<>(couponIds);
+        if (distinct.size() != couponIds.size()) {
+            throw new BusinessException("优惠券不能重复使用");
+        }
+
+        List<Coupon> coupons = new ArrayList<>();
+        List<CouponCalculator.CouponSpec> specs = new ArrayList<>();
+        Set<String> seenTypes = new HashSet<>();
+
+        for (Long couponId : distinct) {
+            Coupon coupon = couponMapper.selectById(couponId);
+            if (coupon == null || !userId.equals(coupon.getUserId())) {
+                throw new BusinessException(Result.CODE_NOT_FOUND, "优惠券不存在");
+            }
+            if (!"UNUSED".equals(coupon.getStatus())) {
+                throw new BusinessException("优惠券不可用，当前状态：" + coupon.getStatus());
+            }
+            CouponGroup group = couponGroupMapper.selectById(coupon.getGroupId());
+            if (group == null
+                    || (group.getExpireAt() != null && group.getExpireAt().isBefore(LocalDateTime.now()))) {
+                throw new BusinessException("优惠券已过期");
+            }
+            // 店铺范围：店铺券仅适用于本店订单
+            if (group.getStoreId() != null && !group.getStoreId().equals(orderStoreId)) {
+                throw new BusinessException("优惠券【" + group.getName() + "】不适用于该店铺订单");
+            }
+            // 同类型限一张
+            if (!seenTypes.add(group.getType())) {
+                throw new BusinessException("同类型优惠券最多使用一张（" + group.getType() + "）");
+            }
+            // 满减门槛：按原始订单总额判定
+            if (group.getMinOrderAmount() != null
+                    && group.getMinOrderAmount().compareTo(BigDecimal.ZERO) > 0
+                    && totalAmount.compareTo(group.getMinOrderAmount()) < 0) {
+                throw new BusinessException(
+                        "订单金额未达优惠券【" + group.getName() + "】最低使用金额 "
+                        + group.getMinOrderAmount() + " 元");
+            }
+            coupons.add(coupon);
+            specs.add(new CouponCalculator.CouponSpec(couponId, group.getType(), group.getValue()));
+        }
+        return new CouponResolution(coupons, CouponCalculator.calculate(totalAmount, specs));
     }
 }
