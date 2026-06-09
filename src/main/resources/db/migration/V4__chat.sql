@@ -25,11 +25,13 @@ CREATE TABLE `chat_session` (
     `last_message`      VARCHAR(120)     NULL                            COMMENT '最后一条消息预览',
     `last_message_at`   DATETIME         NULL                            COMMENT '最后消息时间（列表排序）',
     `created_at`        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP  COMMENT '创建时间',
-    `updated_at`        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP  COMMENT '更新时间',
-    `deleted`           TINYINT      NOT NULL DEFAULT 0                  COMMENT '逻辑删除 0正常 1删除',
+    `updated_at`        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                              ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`           TINYINT      NOT NULL DEFAULT 0                  COMMENT '逻辑删除: 0正常 1删除',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_store_customer` (`store_id`, `customer_id`),
-    INDEX `idx_store_id` (`store_id`)
+    INDEX `idx_store_id` (`store_id`),
+    INDEX `idx_customer_id` (`customer_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='客服会话';
 
 -- ----------------------------
@@ -43,7 +45,7 @@ CREATE TABLE `chat_message` (
     `sender_id`   BIGINT        NOT NULL                            COMMENT '发送者 userId',
     `content`     VARCHAR(1000) NOT NULL                            COMMENT '消息内容',
     `created_at`  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP  COMMENT '创建时间',
-    `deleted`     TINYINT       NOT NULL DEFAULT 0                  COMMENT '逻辑删除 0正常 1删除',
+    `deleted`     TINYINT       NOT NULL DEFAULT 0                  COMMENT '逻辑删除: 0正常 1删除',
     PRIMARY KEY (`id`),
     INDEX `idx_session_cursor` (`session_id`, `id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='客服消息';
