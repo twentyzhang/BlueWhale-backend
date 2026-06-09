@@ -12,6 +12,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.*;
@@ -51,5 +53,39 @@ class RedisUtilTest {
         redisUtil.deleteByPrefix("nope:");
 
         verify(stringRedisTemplate, never()).delete(anyCollection());
+    }
+
+    @Test
+    @DisplayName("sAdd 调用 opsForSet().add")
+    void sAdd_delegatesToSetOps() {
+        org.springframework.data.redis.core.SetOperations<String, String> setOps =
+                org.mockito.Mockito.mock(org.springframework.data.redis.core.SetOperations.class);
+        when(stringRedisTemplate.opsForSet()).thenReturn(setOps);
+        when(setOps.add("k", "v")).thenReturn(1L);
+
+        assertEquals(1L, redisUtil.sAdd("k", "v"));
+        verify(setOps).add("k", "v");
+    }
+
+    @Test
+    @DisplayName("sCard 返回集合大小")
+    void sCard_returnsSize() {
+        org.springframework.data.redis.core.SetOperations<String, String> setOps =
+                org.mockito.Mockito.mock(org.springframework.data.redis.core.SetOperations.class);
+        when(stringRedisTemplate.opsForSet()).thenReturn(setOps);
+        when(setOps.size("k")).thenReturn(3L);
+
+        assertEquals(3L, redisUtil.sCard("k"));
+    }
+
+    @Test
+    @DisplayName("sIsMember 委托 opsForSet().isMember")
+    void sIsMember_delegates() {
+        org.springframework.data.redis.core.SetOperations<String, String> setOps =
+                org.mockito.Mockito.mock(org.springframework.data.redis.core.SetOperations.class);
+        when(stringRedisTemplate.opsForSet()).thenReturn(setOps);
+        when(setOps.isMember("k", "v")).thenReturn(true);
+
+        assertTrue(redisUtil.sIsMember("k", "v"));
     }
 }

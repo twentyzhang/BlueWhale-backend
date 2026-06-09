@@ -68,6 +68,29 @@ public class RedisUtil {
         return stringRedisTemplate.getExpire(key, TimeUnit.SECONDS);
     }
 
+    // ---------- Set 操作（在线状态） ----------
+
+    /** 向集合添加成员，返回新增成员数。 */
+    public Long sAdd(String key, String... values) {
+        return stringRedisTemplate.opsForSet().add(key, values);
+    }
+
+    /** 从集合移除成员，返回移除成员数。 */
+    public Long sRemove(String key, Object... values) {
+        return stringRedisTemplate.opsForSet().remove(key, values);
+    }
+
+    /** 返回集合元素个数（key 不存在返回 0）。 */
+    public Long sCard(String key) {
+        Long size = stringRedisTemplate.opsForSet().size(key);
+        return size != null ? size : 0L;
+    }
+
+    /** 判断成员是否在集合中。 */
+    public Boolean sIsMember(String key, Object value) {
+        return stringRedisTemplate.opsForSet().isMember(key, value);
+    }
+
     /**
      * 按前缀批量删除 key（用于缓存失效，如清除某商品的全部分页评论缓存）。
      * <p>使用 SCAN 游标分批扫描 + 批量删除，<b>不使用 KEYS</b>（KEYS 会一次性遍历整库、阻塞 Redis）。
