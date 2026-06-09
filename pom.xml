@@ -94,6 +94,12 @@
 			<artifactId>spring-boot-starter-data-redis</artifactId>
 		</dependency>
 
+		<!-- WebSocket + STOMP（实时客服） -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-websocket</artifactId>
+		</dependency>
+
 		<!-- EasyExcel：报表导出 xlsx（比 Apache POI 轻，流式写出） -->
 		<dependency>
 			<groupId>com.alibaba</groupId>

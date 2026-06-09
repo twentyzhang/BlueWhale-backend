@@ -39,6 +39,7 @@ public class SecurityConfig {
                         "/api/products/*",          // 商品详情
                         "/api/products/*/reviews"   // 商品评论列表
                 ).permitAll()
+                .requestMatchers("/ws/**").permitAll()   // 握手放行，真正鉴权在 STOMP CONNECT 帧
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
