@@ -2,13 +2,24 @@
 
 > 本文档面向前端开发，描述后端已实现接口的调用方式、鉴权流程、错误处理、枚举值与本地启动方法。
 > 接口的完整字段定义以 [`api-spec.md`](./api-spec.md) 为准，本文档侧重「前端怎么用」。
-> 最后更新：2026-06-05（任务 4 报表导出 Excel、任务 5 多优惠券叠加 + 试算接口）。
+> 最后更新：2026-06-09（任务 7 实时客服 WebSocket + STOMP）。
 
 ---
 
 ## 0. 最近接口变更（前端需重点调整）
 
-> 本次更新（任务 4 报表导出、任务 5 多优惠券叠加）含 **2 处破坏性变更** 和 **3 项新增**。下表为速览，细节见对应模块（订单=模块五、优惠券=模块八、报表=模块十）。
+> 本次更新（任务 7 实时客服）含 **0 处破坏性变更** 和 **1 个新模块**。下表为速览，细节见模块十一。
+
+### 🆕 新增能力（任务 7）
+
+| # | 新增 | 接口/协议 | 说明 |
+|---|---|---|---|
+| 6 | **实时客服 REST** | `GET/POST /api/chat/**` | 会话列表（角色感知）、历史游标分页、接入、释放 |
+| 7 | **实时客服 WebSocket** | `ws://host:8080/ws`（STOMP） | 买家/客服实时发消息；客服订阅店铺主题获取新消息和接入/释放通知；JWT 在 CONNECT 帧鉴权 |
+
+---
+
+> 历史变更（任务 4 报表导出、任务 5 多优惠券叠加）含 **2 处破坏性变更** 和 **3 项新增**。下表为速览，细节见对应模块（订单=模块五、优惠券=模块八、报表=模块十）。
 
 ### ⚠️ 破坏性变更（必须改，否则功能异常）
 
@@ -367,6 +378,128 @@ api.interceptors.response.use(
 > URL.revokeObjectURL(url);
 > ```
 
+### 模块十一：实时客服
+
+#### 11.1 REST 接口
+
+| 接口 | 方法 + 路径 | 角色 | 关键参数 | 响应 data | 常见错误 |
+|---|---|---|---|---|---|
+| 会话列表 | GET `/api/chat/sessions` | 需要登录 | — | 数组（角色感知，见下） | — |
+| 历史消息 | GET `/api/chat/sessions/{id}/messages` | 需要登录 | query: `before`(游标，可选), `size`(默认20) | 数组（按 id 倒序） | 不存在/越权→404/403 |
+| 接入会话 | POST `/api/chat/sessions/{id}/claim` | Staff（本店） | body `{}` | `null` | 已被他人接待→400；非本店→403 |
+| 释放会话 | POST `/api/chat/sessions/{id}/release` | Staff（本店，assignee） | body `{}` | `null` | 非 assignee→403 |
+
+**会话列表响应字段（Customer 视角）：**
+
+```json
+[{
+  "sessionId": 1, "storeId": 1, "storeName": "南鲸旗舰店",
+  "lastMessage": "你好", "lastMessageAt": "2026-06-09T10:00:00",
+  "staffOnline": true
+}]
+```
+
+**会话列表响应字段（Staff 视角）：**
+
+```json
+[{
+  "sessionId": 1, "customerId": 3, "customerNickname": "测试顾客",
+  "customerOnline": true, "assigneeStaffId": null, "assigneeNickname": null,
+  "lastMessage": "你好", "lastMessageAt": "2026-06-09T10:00:00"
+}]
+```
+
+> `assigneeStaffId=null`=未接入；等于当前 staffId=本人接待；其他值=他人接待。
+
+**历史消息响应字段：**
+
+```json
+[{ "id": 42, "sessionId": 1, "senderRole": "CUSTOMER", "senderId": 3,
+   "content": "你好", "createdAt": "2026-06-09T10:00:00" }]
+```
+
+> 游标翻页：用本次返回的最小 `id` 作为下次请求的 `before` 值，可持续向上翻历史。
+
+#### 11.2 WebSocket 连接与订阅
+
+**连接（STOMP over WebSocket）：**
+
+```js
+import { Client } from '@stomp/stompjs';
+
+const client = new Client({
+  brokerURL: 'ws://localhost:8080/ws',
+  connectHeaders: {
+    Authorization: `Bearer ${token}`,   // JWT，必须
+  },
+  onConnect: () => {
+    // 连接成功，开始订阅
+  },
+  onStompError: (frame) => {
+    // 连接被拒（token 无效）
+  },
+});
+client.activate();
+```
+
+**订阅（买家）：**
+```js
+// 收取客服消息
+client.subscribe('/user/queue/messages', (msg) => {
+  const data = JSON.parse(msg.body); // ChatMessageResponse
+});
+// 错误回执
+client.subscribe('/user/queue/errors', (msg) => {
+  const err = JSON.parse(msg.body); // {code, message}
+});
+```
+
+**订阅（客服）：**
+```js
+// 收取分配给自己的买家消息
+client.subscribe('/user/queue/messages', (msg) => { ... });
+// 店铺主题：未接入新消息 + 接入/释放事件
+client.subscribe(`/topic/store.${storeId}`, (msg) => {
+  const event = JSON.parse(msg.body); // StoreTopicEvent
+  // event.type: "MESSAGE" | "CLAIMED" | "RELEASED"
+});
+// 错误回执
+client.subscribe('/user/queue/errors', (msg) => { ... });
+```
+
+#### 11.3 发送消息
+
+**买家发消息：**
+```js
+client.publish({
+  destination: '/app/chat.customer.send',
+  body: JSON.stringify({ storeId: 1, content: '你好，请问有货吗？' }),
+});
+```
+
+**客服发消息：**
+```js
+client.publish({
+  destination: '/app/chat.staff.send',
+  body: JSON.stringify({ sessionId: 1, content: '您好，有货的！' }),
+});
+```
+
+#### 11.4 店铺主题事件（StoreTopicEvent）
+
+| `type` | 含义 | 关键字段 | 客服端建议处理 |
+|---|---|---|---|
+| `MESSAGE` | 未接入会话有新消息 | `sessionId`, `message`(ChatMessageResponse) | 刷新待接入会话列表，展示新消息提醒 |
+| `CLAIMED` | 会话已被某客服接入 | `sessionId`, `staffId` | 从待接入列表移除；更新该会话的 `assigneeStaffId` |
+| `RELEASED` | 会话已释放回公共池 | `sessionId` | 重新显示在待接入列表 |
+
+#### 11.5 注意事项
+
+- **token 续期**：WebSocket 连接建立后 token 过期不会自动断开，但建议在页面加载时先确保 accessToken 有效（调 `/api/auth/refresh`），再建立 WS 连接；或在 onStompError 时重连。
+- **当前实现不发 STOMP ERROR 帧**：token 无效时后端拒绝 CONNECT，WS 连接关闭，客户端收不到结构化 STOMP ERROR 帧（后续版本会补），可监听 `onDisconnect` / `onWebSocketClose` 作为失败信号。
+- **消息顺序**：同一会话内消息按 `id`（自增）有序；`id` 可直接用于游标分页。
+- **建议联调顺序**：① ADMIN 建商店，STAFF 绑定；② CUSTOMER 登录，连接 WS，发第一条消息建会话；③ STAFF 登录，连接 WS，订阅店铺主题，收到 `StoreTopicEvent{type:MESSAGE}`；④ STAFF 调 `/claim` 接入；⑤ 双向收发消息；⑥ STAFF 调 `/release` 释放。
+
 ---
 
 ## 5. 枚举值说明
@@ -429,6 +562,7 @@ PENDING_PAYMENT --pay--> PAID --ship(Staff)--> SHIPPED --confirm--> COMPLETED --
    - `V1__init_schema.sql`：建 12 张表；
    - `V2__add_product_version.sql`：商品加乐观锁 `version` 列；
    - `V3__coupon_stacking.sql`：券类型拆分（满减/直减）+ 建 `order_coupon` 关联表（多券）；
+   - `V4__chat.sql`：建 `chat_session` + `chat_message` 两张表（实时客服，任务 7）；
    - `R__seed_data.sql`：灌入测试商店 / 账号 / 分类 / 商品。
 
 > 迁移脚本是单一可执行来源，原 `docs/schema.sql` / `docs/data.sql` 已迁入上述目录。

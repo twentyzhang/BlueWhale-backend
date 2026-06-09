@@ -1185,6 +1185,191 @@ null
 
 ---
 
+## 模块十一：实时客服
+
+> 实时消息走 STOMP over WebSocket；会话管理（接入/释放/历史）走 REST。所有 REST 接口需 JWT 认证。WS 连接鉴权见下方「WebSocket 协议」节。
+
+### GET /api/chat/sessions — 角色感知会话列表
+
+**权限：** 需要登录（Customer / Staff）
+
+**响应 data（数组）：**
+
+Customer 视角（每店至多一条）：
+```json
+[
+  {
+    "sessionId": 1,
+    "storeId": 1,
+    "storeName": "南鲸旗舰店",
+    "lastMessage": "你好，请问有货吗？",
+    "lastMessageAt": "2026-06-09T10:00:00",
+    "staffOnline": true
+  }
+]
+```
+
+Staff 视角（本店全部会话，含分组信息）：
+```json
+[
+  {
+    "sessionId": 1,
+    "customerId": 3,
+    "customerNickname": "测试顾客",
+    "customerOnline": true,
+    "assigneeStaffId": null,
+    "assigneeNickname": null,
+    "lastMessage": "你好，请问有货吗？",
+    "lastMessageAt": "2026-06-09T10:00:00"
+  }
+]
+```
+
+> `assigneeStaffId=null` 为未接入；等于当前 staffId 为本人接待；等于其他 staffId 为他人接待。
+
+---
+
+### GET /api/chat/sessions/{sessionId}/messages — 历史消息游标分页
+
+**权限：** 需要登录（Customer 只能查自己的会话；Staff 可查本店任意会话）
+
+**Query 参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| before | long | 否 | 游标，取 id 小于此值的消息；不传则从最新开始 |
+| size | int | 否 | 每页数量，默认 20 |
+
+**响应 data（数组，按 id 倒序）：**
+```json
+[
+  {
+    "id": 42,
+    "sessionId": 1,
+    "senderRole": "CUSTOMER",
+    "senderId": 3,
+    "content": "你好，请问有货吗？",
+    "createdAt": "2026-06-09T10:00:00"
+  }
+]
+```
+
+> 向上翻页：用本次返回的最小 `id` 作为下次请求的 `before` 参数。
+
+---
+
+### POST /api/chat/sessions/{sessionId}/claim — 接入会话
+
+**权限：** 仅 Staff（本店）
+
+**请求体：** `{}`
+
+**响应 data：** `null`
+
+> 原子操作：若该会话已被他人接待，返回 `400`（消息说明已被谁接待）。成功后广播 `StoreTopicEvent{type:"CLAIMED"}` 到 `/topic/store.{storeId}`。
+
+---
+
+### POST /api/chat/sessions/{sessionId}/release — 释放会话
+
+**权限：** 仅 Staff（本店，且为当前 assignee）
+
+**请求体：** `{}`
+
+**响应 data：** `null`
+
+> 仅 assignee 可释放，非本人持有返回 `403`。成功后广播 `StoreTopicEvent{type:"RELEASED"}` 到 `/topic/store.{storeId}`。
+
+---
+
+### WebSocket 协议（STOMP over WebSocket）
+
+#### 连接
+
+```
+WebSocket URL：ws://localhost:8080/ws
+协议：STOMP
+```
+
+**STOMP CONNECT 帧**（必须携带 JWT）：
+```
+CONNECT
+Authorization:Bearer eyJhbGciOiJIUzI1NiJ9...
+accept-version:1.2
+heart-beat:0,0
+```
+
+连接失败（token 无效/缺失）：服务端拒绝连接，WS 连接关闭（当前未发 STOMP ERROR 帧，见决策 #51）。
+
+#### 订阅目的地
+
+| 订阅者 | 订阅地址 | 收到的消息 |
+|---|---|---|
+| 买家 | `/user/queue/messages` | 客服发来的消息（`ChatMessageResponse`） |
+| 买家 | `/user/queue/errors` | WS 业务错误回执 |
+| 客服 | `/user/queue/messages` | 买家发来的（assignee 接待中）消息 |
+| 客服 | `/topic/store.{storeId}` | 店铺主题事件（新未接入消息、接入/释放通知） |
+| 客服 | `/user/queue/errors` | WS 业务错误回执 |
+
+> 客服订阅 `/topic/store.{storeId}` 时，`storeId` 须与 JWT 中的 storeId 一致，否则 SUBSCRIBE 被拒绝（403）。
+
+#### 发送目的地
+
+**买家发消息**：
+```
+SEND
+destination:/app/chat.customer.send
+
+{"storeId":1,"content":"你好，请问有货吗？"}
+```
+
+**客服发消息**：
+```
+SEND
+destination:/app/chat.staff.send
+
+{"sessionId":1,"content":"您好，有货的！"}
+```
+
+#### 消息体格式
+
+**`ChatMessageResponse`**（私信投递 `/user/queue/messages`）：
+```json
+{
+  "id": 42,
+  "sessionId": 1,
+  "senderRole": "CUSTOMER",
+  "senderId": 3,
+  "content": "你好，请问有货吗？",
+  "createdAt": "2026-06-09T10:00:00"
+}
+```
+
+**`StoreTopicEvent`**（店铺主题 `/topic/store.{storeId}`）：
+```json
+{
+  "type": "MESSAGE",
+  "sessionId": 1,
+  "message": { ...ChatMessageResponse... }
+}
+```
+
+| `type` 值 | 含义 | 额外字段 |
+|---|---|---|
+| `MESSAGE` | 未接入会话有新消息 | `message`（ChatMessageResponse） |
+| `CLAIMED` | 会话已被某客服接入 | `staffId`（接入的 staffId） |
+| `RELEASED` | 会话已释放回公共池 | — |
+
+**`/user/queue/errors` 错误回执**：
+```json
+{
+  "code": 403,
+  "message": "您无权向该会话发送消息"
+}
+```
+
+---
+
 ## 接口汇总
 
 | 模块 | 方法 | 路径 | 权限 |
@@ -1241,3 +1426,13 @@ null
 | | GET | `/api/stores/{storeId}/reports/orders/export` | Staff |
 | | GET | `/api/admin/reports/orders` | Admin |
 | | GET | `/api/admin/reports/orders/export` | Admin |
+| **实时客服（REST）** | GET | `/api/chat/sessions` | 需要登录（角色感知） |
+| | GET | `/api/chat/sessions/{sessionId}/messages` | 需要登录 |
+| | POST | `/api/chat/sessions/{sessionId}/claim` | Staff |
+| | POST | `/api/chat/sessions/{sessionId}/release` | Staff |
+| **实时客服（WS）** | STOMP CONNECT | `ws://host:8080/ws` | JWT CONNECT 帧鉴权 |
+| | SUBSCRIBE | `/user/queue/messages` | 买家/客服 |
+| | SUBSCRIBE | `/topic/store.{storeId}` | 仅 Staff（本店） |
+| | SUBSCRIBE | `/user/queue/errors` | 买家/客服 |
+| | SEND | `/app/chat.customer.send` | 仅 Customer |
+| | SEND | `/app/chat.staff.send` | 仅 Staff |
