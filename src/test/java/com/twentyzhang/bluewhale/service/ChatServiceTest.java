@@ -248,4 +248,31 @@ class ChatServiceTest extends BaseServiceTest {
                 () -> chatService.release(STAFF, 100L));
         assertEquals(com.twentyzhang.bluewhale.common.Result.CODE_FORBIDDEN, ex.getCode());
     }
+
+    @Test
+    @DisplayName("释放：会话属于别的店铺时抛 403（按店校验）")
+    void release_otherStore_throws403() {
+        mockAuthUser(9L, AuthUtil.ROLE_STAFF, 5L);
+        when(chatSessionMapper.selectById(100L)).thenReturn(session(100L, 7L, 1L, 9L)); // 店铺 7 ≠ staff 店铺 5
+
+        var ex = assertThrows(com.twentyzhang.bluewhale.exception.BusinessException.class,
+                () -> chatService.release(STAFF, 100L));
+        assertEquals(com.twentyzhang.bluewhale.common.Result.CODE_FORBIDDEN, ex.getCode());
+        verify(chatSessionMapper, never()).release(anyLong(), anyLong());
+    }
+
+    @Test
+    @DisplayName("认领失败：竞态下会话刚被释放（assignee=null）时给出通用提示，不抛 NPE")
+    void claim_lostRaceThenReleased_genericName() {
+        mockAuthUser(9L, AuthUtil.ROLE_STAFF, 5L);
+        when(chatSessionMapper.selectById(100L))
+                .thenReturn(session(100L, 5L, 1L, null))   // requireSession：未接入
+                .thenReturn(session(100L, 5L, 1L, null));  // claim 0 行后重查：已被释放，assignee=null
+        when(chatSessionMapper.claim(100L, 9L)).thenReturn(0);
+
+        var ex = assertThrows(com.twentyzhang.bluewhale.exception.BusinessException.class,
+                () -> chatService.claim(STAFF, 100L));
+        assertTrue(ex.getMessage().contains("其他客服"));
+        verify(messagingTemplate, never()).convertAndSend(anyString(), any(Object.class));
+    }
 }

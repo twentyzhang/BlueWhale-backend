@@ -136,13 +136,7 @@ public class ChatServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSession>
     public ChatMessageResponse sendFromStaff(AuthUser staff, StaffSendRequest request) {
         AuthUtil.requireRole(AuthUtil.ROLE_STAFF);
 
-        ChatSession session = getById(request.getSessionId());
-        if (session == null) {
-            throw new BusinessException(Result.CODE_NOT_FOUND, "会话不存在");
-        }
-        if (!session.getStoreId().equals(staff.storeId())) {
-            throw new BusinessException(Result.CODE_FORBIDDEN, "无权操作该会话");
-        }
+        ChatSession session = requireSession(request.getSessionId(), staff);
         if (!staff.userId().equals(session.getAssigneeStaffId())) {
             throw new BusinessException(Result.CODE_FORBIDDEN, "请先接入会话");
         }
@@ -160,19 +154,14 @@ public class ChatServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSession>
     public ClaimResponse claim(AuthUser staff, Long sessionId) {
         AuthUtil.requireRole(AuthUtil.ROLE_STAFF);
 
-        ChatSession session = getById(sessionId);
-        if (session == null) {
-            throw new BusinessException(Result.CODE_NOT_FOUND, "会话不存在");
-        }
-        if (!session.getStoreId().equals(staff.storeId())) {
-            throw new BusinessException(Result.CODE_FORBIDDEN, "无权操作该会话");
-        }
+        ChatSession session = requireSession(sessionId, staff);
 
         int affected = baseMapper.claim(sessionId, staff.userId());
         if (affected == 0) {
+            // 已被抢先（或刚好被释放）：尽力取出当前接待人姓名做友好提示
             ChatSession latest = getById(sessionId);
-            String name = nicknameOf(latest.getAssigneeStaffId());
-            throw new BusinessException("会话已被 " + name + " 接待");
+            String name = nicknameOf(latest != null ? latest.getAssigneeStaffId() : null);
+            throw new BusinessException("会话已被 " + (name.isEmpty() ? "其他客服" : name) + " 接待");
         }
 
         String staffName = nicknameOf(staff.userId());
@@ -192,10 +181,7 @@ public class ChatServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSession>
     public void release(AuthUser staff, Long sessionId) {
         AuthUtil.requireRole(AuthUtil.ROLE_STAFF);
 
-        ChatSession session = getById(sessionId);
-        if (session == null) {
-            throw new BusinessException(Result.CODE_NOT_FOUND, "会话不存在");
-        }
+        ChatSession session = requireSession(sessionId, staff);
 
         int affected = baseMapper.release(sessionId, staff.userId());
         if (affected == 0) {
@@ -218,6 +204,18 @@ public class ChatServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSession>
     @Override
     public List<ChatMessageResponse> getMessages(AuthUser user, Long sessionId, Long before, int size) {
         throw new UnsupportedOperationException("Task 7");
+    }
+
+    /** 加载会话并校验存在 + 当前 Staff 属于该会话所属店铺（客服按店操作的统一前置校验）。 */
+    private ChatSession requireSession(Long sessionId, AuthUser staff) {
+        ChatSession session = getById(sessionId);
+        if (session == null) {
+            throw new BusinessException(Result.CODE_NOT_FOUND, "会话不存在");
+        }
+        if (!session.getStoreId().equals(staff.storeId())) {
+            throw new BusinessException(Result.CODE_FORBIDDEN, "无权操作该会话");
+        }
+        return session;
     }
 
     /** 取用户昵称，缺失时回退为"客服{id}"。 */
