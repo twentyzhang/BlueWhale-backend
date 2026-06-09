@@ -344,7 +344,19 @@ class ChatServiceTest extends BaseServiceTest {
         when(chatMessageMapper.selectList(any())).thenReturn(java.util.List.of());
 
         var msgs = chatService.getMessages(STAFF, 100L, null, 20);
-        assertNotNull(msgs);
+        assertTrue(msgs.isEmpty());
+    }
+
+    @Test
+    @DisplayName("历史消息：客服查看别店会话抛 403（按店读）")
+    void getMessages_staffOtherStore_throws403() {
+        mockAuthUser(9L, AuthUtil.ROLE_STAFF, 5L);
+        when(chatSessionMapper.selectById(100L)).thenReturn(session(100L, 7L, 1L, 8L)); // 店铺 7 ≠ staff 店铺 5
+
+        var ex = assertThrows(com.twentyzhang.bluewhale.exception.BusinessException.class,
+                () -> chatService.getMessages(STAFF, 100L, null, 20));
+        assertEquals(com.twentyzhang.bluewhale.common.Result.CODE_FORBIDDEN, ex.getCode());
+        verify(chatMessageMapper, never()).selectList(any());
     }
 
     @Test
