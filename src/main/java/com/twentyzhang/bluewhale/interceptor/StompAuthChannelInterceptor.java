@@ -28,7 +28,6 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private static final String STORE_TOPIC_PREFIX = "/topic/store.";
 
     @Override
-    @SuppressWarnings("unchecked")
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
         StompHeaderAccessor accessor =
                 MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
@@ -71,6 +70,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             return; // 仅校验店铺主题；/user/queue/** 由 Spring 按 principal 隔离
         }
         AuthUser user = currentUser(accessor);
+        // 仅 STAFF 可订阅店铺主题；ADMIN（storeId=null）v1 无 WS 监控场景，故一并排除。
         if (!AuthUtil.ROLE_STAFF.equals(user.role())) {
             throw new IllegalArgumentException("仅客服可订阅店铺会话");
         }

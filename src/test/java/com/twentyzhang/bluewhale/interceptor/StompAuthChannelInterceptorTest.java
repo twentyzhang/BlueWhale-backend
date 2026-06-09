@@ -85,4 +85,19 @@ class StompAuthChannelInterceptorTest {
         assertThrows(IllegalArgumentException.class,
                 () -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, null, "/topic/store.5", cust), null));
     }
+
+    @Test
+    @DisplayName("SUBSCRIBE 店铺主题但无 Principal（未认证）：拒绝")
+    void subscribe_storeTopic_noPrincipal_rejected() {
+        assertThrows(IllegalArgumentException.class,
+                () -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, null, "/topic/store.5", null), null));
+    }
+
+    @Test
+    @DisplayName("SUBSCRIBE 用户队列目的地：放行（交给 Spring 按 principal 隔离）")
+    void subscribe_userQueue_passesThrough() {
+        ChatPrincipal cust = new ChatPrincipal(new com.twentyzhang.bluewhale.common.AuthUser(1L, AuthUtil.ROLE_CUSTOMER, null));
+        assertDoesNotThrow(
+                () -> interceptor.preSend(frame(StompCommand.SUBSCRIBE, null, "/user/queue/messages", cust), null));
+    }
 }
