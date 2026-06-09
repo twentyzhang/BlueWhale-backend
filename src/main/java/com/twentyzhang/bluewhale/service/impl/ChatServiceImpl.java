@@ -195,15 +195,63 @@ public class ChatServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSession>
                         .build());
     }
 
-    // ── 以下方法在后续任务实现 ───────────────────────────────────────────────
     @Override
     public List<ChatSessionItemResponse> listSessions(AuthUser user) {
-        throw new UnsupportedOperationException("Task 7");
+        boolean isStaff = AuthUtil.ROLE_STAFF.equals(user.role());
+        LambdaQueryWrapper<ChatSession> wrapper = new LambdaQueryWrapper<ChatSession>()
+                .orderByDesc(ChatSession::getLastMessageAt);
+        if (isStaff) {
+            wrapper.eq(ChatSession::getStoreId, user.storeId());
+        } else {
+            wrapper.eq(ChatSession::getCustomerId, user.userId());
+        }
+        List<ChatSession> sessions = list(wrapper);
+
+        return sessions.stream().map(s -> {
+            ChatSessionItemResponse.ChatSessionItemResponseBuilder b = ChatSessionItemResponse.builder()
+                    .sessionId(s.getId())
+                    .storeId(s.getStoreId())
+                    .customerId(s.getCustomerId())
+                    .assigneeStaffId(s.getAssigneeStaffId())
+                    .assigneeName(s.getAssigneeStaffId() == null ? null : nicknameOf(s.getAssigneeStaffId()))
+                    .lastMessage(s.getLastMessage())
+                    .lastMessageAt(s.getLastMessageAt());
+            if (isStaff) {
+                b.peerOnline(Boolean.TRUE.equals(redisUtil.sIsMember(ChatKeys.ONLINE_CUSTOMERS, String.valueOf(s.getCustomerId()))));
+            } else {
+                Store store = storeMapper.selectById(s.getStoreId());
+                b.storeName(store != null ? store.getName() : null);
+                b.peerOnline(redisUtil.sCard(ChatKeys.onlineStoreStaff(s.getStoreId())) > 0);
+            }
+            return b.build();
+        }).toList();
     }
 
     @Override
     public List<ChatMessageResponse> getMessages(AuthUser user, Long sessionId, Long before, int size) {
-        throw new UnsupportedOperationException("Task 7");
+        ChatSession session = getById(sessionId);
+        if (session == null) {
+            throw new BusinessException(Result.CODE_NOT_FOUND, "会话不存在");
+        }
+        if (AuthUtil.ROLE_STAFF.equals(user.role())) {
+            if (!session.getStoreId().equals(user.storeId())) {
+                throw new BusinessException(Result.CODE_FORBIDDEN, "无权查看该会话");
+            }
+        } else {
+            if (!session.getCustomerId().equals(user.userId())) {
+                throw new BusinessException(Result.CODE_FORBIDDEN, "无权查看该会话");
+            }
+        }
+
+        int pageSize = (size <= 0 || size > 100) ? 20 : size;
+        LambdaQueryWrapper<ChatMessage> wrapper = new LambdaQueryWrapper<ChatMessage>()
+                .eq(ChatMessage::getSessionId, sessionId)
+                .orderByDesc(ChatMessage::getId)
+                .last("LIMIT " + pageSize);
+        if (before != null) {
+            wrapper.lt(ChatMessage::getId, before);
+        }
+        return chatMessageMapper.selectList(wrapper).stream().map(this::toMessageView).toList();
     }
 
     /** 加载会话并校验存在 + 当前 Staff 属于该会话所属店铺（客服按店操作的统一前置校验）。 */

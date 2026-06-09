@@ -275,4 +275,86 @@ class ChatServiceTest extends BaseServiceTest {
         assertTrue(ex.getMessage().contains("其他客服"));
         verify(messagingTemplate, never()).convertAndSend(anyString(), any(Object.class));
     }
+
+    @Test
+    @DisplayName("会话列表：客服按本店查询并标记买家在线")
+    void listSessions_staff_marksCustomerOnline() {
+        mockAuthUser(9L, AuthUtil.ROLE_STAFF, 5L);
+        when(chatSessionMapper.selectList(any())).thenReturn(java.util.List.of(session(100L, 5L, 1L, 9L)));
+        when(userMapper.selectById(9L)).thenReturn(
+                com.twentyzhang.bluewhale.entity.User.builder().id(9L).nickname("小蓝").build());
+        when(redisUtil.sIsMember(anyString(), eq("1"))).thenReturn(true);
+
+        var list = chatService.listSessions(STAFF);
+
+        assertEquals(1, list.size());
+        assertTrue(list.get(0).isPeerOnline());
+        assertEquals("小蓝", list.get(0).getAssigneeName());
+    }
+
+    @Test
+    @DisplayName("会话列表：买家视角填店名与本店客服在线")
+    void listSessions_customer_fillsStoreNameAndOnline() {
+        mockAuthUser(1L, AuthUtil.ROLE_CUSTOMER, null);
+        when(chatSessionMapper.selectList(any())).thenReturn(java.util.List.of(session(100L, 5L, 1L, null)));
+        when(storeMapper.selectById(5L)).thenReturn(
+                com.twentyzhang.bluewhale.entity.Store.builder().id(5L).name("蓝鲸店").build());
+        when(redisUtil.sCard(anyString())).thenReturn(2L);
+
+        var list = chatService.listSessions(CUSTOMER);
+
+        assertEquals(1, list.size());
+        assertEquals("蓝鲸店", list.get(0).getStoreName());
+        assertTrue(list.get(0).isPeerOnline());
+        assertNull(list.get(0).getAssigneeName());
+    }
+
+    @Test
+    @DisplayName("历史消息：买家查看本人会话成功")
+    void getMessages_customerOwnSession_ok() {
+        mockAuthUser(1L, AuthUtil.ROLE_CUSTOMER, null);
+        when(chatSessionMapper.selectById(100L)).thenReturn(session(100L, 5L, 1L, 9L));
+        when(chatMessageMapper.selectList(any())).thenReturn(java.util.List.of(
+                com.twentyzhang.bluewhale.entity.ChatMessage.builder()
+                        .id(7L).sessionId(100L).senderRole("CUSTOMER").senderId(1L).content("hi").build()));
+
+        var msgs = chatService.getMessages(CUSTOMER, 100L, null, 20);
+
+        assertEquals(1, msgs.size());
+        assertEquals(7L, msgs.get(0).getId());
+    }
+
+    @Test
+    @DisplayName("历史消息：买家查看他人会话抛 403")
+    void getMessages_customerOtherSession_throws403() {
+        mockAuthUser(2L, AuthUtil.ROLE_CUSTOMER, null);
+        when(chatSessionMapper.selectById(100L)).thenReturn(session(100L, 5L, 1L, 9L)); // 属于客户 1
+        AuthUser other = new AuthUser(2L, AuthUtil.ROLE_CUSTOMER, null);
+
+        var ex = assertThrows(com.twentyzhang.bluewhale.exception.BusinessException.class,
+                () -> chatService.getMessages(other, 100L, null, 20));
+        assertEquals(com.twentyzhang.bluewhale.common.Result.CODE_FORBIDDEN, ex.getCode());
+    }
+
+    @Test
+    @DisplayName("历史消息：客服查看本店会话成功（按店读，即便接待人是别人）")
+    void getMessages_staffSameStore_ok() {
+        mockAuthUser(9L, AuthUtil.ROLE_STAFF, 5L);
+        when(chatSessionMapper.selectById(100L)).thenReturn(session(100L, 5L, 1L, 8L)); // 接待人是别人
+        when(chatMessageMapper.selectList(any())).thenReturn(java.util.List.of());
+
+        var msgs = chatService.getMessages(STAFF, 100L, null, 20);
+        assertNotNull(msgs);
+    }
+
+    @Test
+    @DisplayName("历史消息：会话不存在抛 404")
+    void getMessages_notFound_throws404() {
+        mockAuthUser(1L, AuthUtil.ROLE_CUSTOMER, null);
+        when(chatSessionMapper.selectById(999L)).thenReturn(null);
+
+        var ex = assertThrows(com.twentyzhang.bluewhale.exception.BusinessException.class,
+                () -> chatService.getMessages(CUSTOMER, 999L, null, 20));
+        assertEquals(com.twentyzhang.bluewhale.common.Result.CODE_NOT_FOUND, ex.getCode());
+    }
 }
