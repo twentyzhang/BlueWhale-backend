@@ -28,6 +28,8 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -56,17 +58,38 @@ public class ChatServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSession>
         ChatMessageResponse view = toMessageView(saved);
 
         if (session.getAssigneeStaffId() == null) {
-            messagingTemplate.convertAndSend("/topic/store." + session.getStoreId(),
+            Long storeId = session.getStoreId();
+            Long sid = session.getId();
+            afterCommit(() -> messagingTemplate.convertAndSend("/topic/store." + storeId,
                     StoreTopicEvent.builder()
                             .type(StoreTopicEvent.TYPE_MESSAGE)
-                            .sessionId(session.getId())
+                            .sessionId(sid)
                             .message(view)
-                            .build());
+                            .build()));
         } else {
-            messagingTemplate.convertAndSendToUser(
-                    String.valueOf(session.getAssigneeStaffId()), "/queue/messages", view);
+            Long assignee = session.getAssigneeStaffId();
+            afterCommit(() -> messagingTemplate.convertAndSendToUser(
+                    String.valueOf(assignee), "/queue/messages", view));
         }
         return view;
+    }
+
+    /**
+     * 在当前事务提交后执行（无活动事务时立即执行）。
+     * 用于把 STOMP 推送延迟到 DB 写入提交之后，避免客服收到事件后立刻用 sessionId 调 REST
+     * 却因会话行尚未提交而读不到（REST 为独立事务，MySQL 默认 REPEATABLE READ）。
+     */
+    private void afterCommit(Runnable action) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    action.run();
+                }
+            });
+        } else {
+            action.run();
+        }
     }
 
     // ── 私有辅助 ───────────────────────────────────────────────────────────────
@@ -144,8 +167,9 @@ public class ChatServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSession>
         ChatMessage saved = persistMessage(session, AuthUtil.ROLE_STAFF, staff.userId(), request.getContent());
         ChatMessageResponse view = toMessageView(saved);
 
-        messagingTemplate.convertAndSendToUser(
-                String.valueOf(session.getCustomerId()), "/queue/messages", view);
+        Long customerId = session.getCustomerId();
+        afterCommit(() -> messagingTemplate.convertAndSendToUser(
+                String.valueOf(customerId), "/queue/messages", view));
         return view;
     }
 
@@ -165,13 +189,14 @@ public class ChatServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSession>
         }
 
         String staffName = nicknameOf(staff.userId());
-        messagingTemplate.convertAndSend("/topic/store." + session.getStoreId(),
+        Long storeId = session.getStoreId();
+        afterCommit(() -> messagingTemplate.convertAndSend("/topic/store." + storeId,
                 StoreTopicEvent.builder()
                         .type(StoreTopicEvent.TYPE_CLAIMED)
                         .sessionId(sessionId)
                         .assigneeStaffId(staff.userId())
                         .assigneeName(staffName)
-                        .build());
+                        .build()));
 
         return ClaimResponse.builder().sessionId(sessionId).assigneeStaffId(staff.userId()).build();
     }
@@ -188,11 +213,12 @@ public class ChatServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSession>
             throw new BusinessException(Result.CODE_FORBIDDEN, "仅接待人可释放会话");
         }
 
-        messagingTemplate.convertAndSend("/topic/store." + session.getStoreId(),
+        Long storeId = session.getStoreId();
+        afterCommit(() -> messagingTemplate.convertAndSend("/topic/store." + storeId,
                 StoreTopicEvent.builder()
                         .type(StoreTopicEvent.TYPE_RELEASED)
                         .sessionId(sessionId)
-                        .build());
+                        .build()));
     }
 
     @Override
