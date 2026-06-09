@@ -48,7 +48,7 @@ public class ChatServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSession>
     @Override
     @Transactional
     public ChatMessageResponse sendFromCustomer(AuthUser customer, CustomerSendRequest request) {
-        AuthUtil.requireRole(AuthUtil.ROLE_CUSTOMER);
+        AuthUtil.requireRole(customer, AuthUtil.ROLE_CUSTOMER);
 
         ChatSession session = resolveOrCreateSession(request.getStoreId(), customer.userId());
 
@@ -134,7 +134,7 @@ public class ChatServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSession>
     @Override
     @Transactional
     public ChatMessageResponse sendFromStaff(AuthUser staff, StaffSendRequest request) {
-        AuthUtil.requireRole(AuthUtil.ROLE_STAFF);
+        AuthUtil.requireRole(staff, AuthUtil.ROLE_STAFF);
 
         ChatSession session = requireSession(request.getSessionId(), staff);
         if (!staff.userId().equals(session.getAssigneeStaffId())) {
@@ -152,7 +152,7 @@ public class ChatServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSession>
     // ── 认领会话 ───────────────────────────────────────────────────────────────
     @Override
     public ClaimResponse claim(AuthUser staff, Long sessionId) {
-        AuthUtil.requireRole(AuthUtil.ROLE_STAFF);
+        AuthUtil.requireRole(staff, AuthUtil.ROLE_STAFF);
 
         ChatSession session = requireSession(sessionId, staff);
 
@@ -179,7 +179,7 @@ public class ChatServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSession>
     // ── 释放会话 ───────────────────────────────────────────────────────────────
     @Override
     public void release(AuthUser staff, Long sessionId) {
-        AuthUtil.requireRole(AuthUtil.ROLE_STAFF);
+        AuthUtil.requireRole(staff, AuthUtil.ROLE_STAFF);
 
         ChatSession session = requireSession(sessionId, staff);
 

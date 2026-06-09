@@ -47,6 +47,17 @@ public class AuthUtil {
     }
 
     /**
+     * 校验给定用户的角色是否在允许列表中（不读取 SecurityContext）。
+     * 用于 WebSocket/STOMP 等没有 SecurityContextHolder 的线程：角色取自显式传入的 AuthUser
+     * （由 STOMP CONNECT 拦截器绑定的 ChatPrincipal 解出），避免误判未登录。
+     */
+    public static void requireRole(AuthUser user, String... roles) {
+        if (user == null || Arrays.stream(roles).noneMatch(r -> r.equals(user.role()))) {
+            throw new BusinessException(Result.CODE_FORBIDDEN, "权限不足");
+        }
+    }
+
+    /**
      * 校验当前 Staff 用户是否有权操作指定商店，storeId 不匹配则抛出 403。
      */
     public static void requireStoreAccess(Long storeId) {
