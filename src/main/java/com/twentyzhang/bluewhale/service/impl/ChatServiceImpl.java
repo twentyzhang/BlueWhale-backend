@@ -130,22 +130,86 @@ public class ChatServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSession>
                 .build();
     }
 
-    // ── 以下方法在后续任务实现 ───────────────────────────────────────────────
+    // ── 客服回复 ───────────────────────────────────────────────────────────────
     @Override
+    @Transactional
     public ChatMessageResponse sendFromStaff(AuthUser staff, StaffSendRequest request) {
-        throw new UnsupportedOperationException("Task 6");
+        AuthUtil.requireRole(AuthUtil.ROLE_STAFF);
+
+        ChatSession session = getById(request.getSessionId());
+        if (session == null) {
+            throw new BusinessException(Result.CODE_NOT_FOUND, "会话不存在");
+        }
+        if (!session.getStoreId().equals(staff.storeId())) {
+            throw new BusinessException(Result.CODE_FORBIDDEN, "无权操作该会话");
+        }
+        if (!staff.userId().equals(session.getAssigneeStaffId())) {
+            throw new BusinessException(Result.CODE_FORBIDDEN, "请先接入会话");
+        }
+
+        ChatMessage saved = persistMessage(session, AuthUtil.ROLE_STAFF, staff.userId(), request.getContent());
+        ChatMessageResponse view = toMessageView(saved);
+
+        messagingTemplate.convertAndSendToUser(
+                String.valueOf(session.getCustomerId()), "/queue/messages", view);
+        return view;
     }
 
+    // ── 认领会话 ───────────────────────────────────────────────────────────────
     @Override
     public ClaimResponse claim(AuthUser staff, Long sessionId) {
-        throw new UnsupportedOperationException("Task 6");
+        AuthUtil.requireRole(AuthUtil.ROLE_STAFF);
+
+        ChatSession session = getById(sessionId);
+        if (session == null) {
+            throw new BusinessException(Result.CODE_NOT_FOUND, "会话不存在");
+        }
+        if (!session.getStoreId().equals(staff.storeId())) {
+            throw new BusinessException(Result.CODE_FORBIDDEN, "无权操作该会话");
+        }
+
+        int affected = baseMapper.claim(sessionId, staff.userId());
+        if (affected == 0) {
+            ChatSession latest = getById(sessionId);
+            String name = nicknameOf(latest.getAssigneeStaffId());
+            throw new BusinessException("会话已被 " + name + " 接待");
+        }
+
+        String staffName = nicknameOf(staff.userId());
+        messagingTemplate.convertAndSend("/topic/store." + session.getStoreId(),
+                StoreTopicEvent.builder()
+                        .type(StoreTopicEvent.TYPE_CLAIMED)
+                        .sessionId(sessionId)
+                        .assigneeStaffId(staff.userId())
+                        .assigneeName(staffName)
+                        .build());
+
+        return ClaimResponse.builder().sessionId(sessionId).assigneeStaffId(staff.userId()).build();
     }
 
+    // ── 释放会话 ───────────────────────────────────────────────────────────────
     @Override
     public void release(AuthUser staff, Long sessionId) {
-        throw new UnsupportedOperationException("Task 6");
+        AuthUtil.requireRole(AuthUtil.ROLE_STAFF);
+
+        ChatSession session = getById(sessionId);
+        if (session == null) {
+            throw new BusinessException(Result.CODE_NOT_FOUND, "会话不存在");
+        }
+
+        int affected = baseMapper.release(sessionId, staff.userId());
+        if (affected == 0) {
+            throw new BusinessException(Result.CODE_FORBIDDEN, "仅接待人可释放会话");
+        }
+
+        messagingTemplate.convertAndSend("/topic/store." + session.getStoreId(),
+                StoreTopicEvent.builder()
+                        .type(StoreTopicEvent.TYPE_RELEASED)
+                        .sessionId(sessionId)
+                        .build());
     }
 
+    // ── 以下方法在后续任务实现 ───────────────────────────────────────────────
     @Override
     public List<ChatSessionItemResponse> listSessions(AuthUser user) {
         throw new UnsupportedOperationException("Task 7");
@@ -154,5 +218,12 @@ public class ChatServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSession>
     @Override
     public List<ChatMessageResponse> getMessages(AuthUser user, Long sessionId, Long before, int size) {
         throw new UnsupportedOperationException("Task 7");
+    }
+
+    /** 取用户昵称，缺失时回退为"客服{id}"。 */
+    private String nicknameOf(Long userId) {
+        if (userId == null) return "";
+        User u = userMapper.selectById(userId);
+        return (u != null && u.getNickname() != null) ? u.getNickname() : ("客服" + userId);
     }
 }

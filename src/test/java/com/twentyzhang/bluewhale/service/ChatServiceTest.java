@@ -159,4 +159,93 @@ class ChatServiceTest extends BaseServiceTest {
         verify(chatSessionMapper).updateById((ChatSession) captor.capture());
         assertEquals(120, captor.getValue().getLastMessage().length());
     }
+
+    private static com.twentyzhang.bluewhale.dto.chat.StaffSendRequest staffReq(Long sessionId, String content) {
+        com.twentyzhang.bluewhale.dto.chat.StaffSendRequest r = new com.twentyzhang.bluewhale.dto.chat.StaffSendRequest();
+        r.setSessionId(sessionId);
+        r.setContent(content);
+        return r;
+    }
+
+    @Test
+    @DisplayName("客服回复：是 assignee 时投递买家")
+    void staffSend_asAssignee_sendsToCustomer() {
+        mockAuthUser(9L, AuthUtil.ROLE_STAFF, 5L);
+        when(chatSessionMapper.selectById(100L)).thenReturn(session(100L, 5L, 1L, 9L));
+        when(chatMessageMapper.insert(anyMsg())).thenReturn(1);
+        when(chatSessionMapper.updateById(anySession())).thenReturn(1);
+
+        chatService.sendFromStaff(STAFF, staffReq(100L, "您好"));
+
+        verify(messagingTemplate).convertAndSendToUser(eq("1"), eq("/queue/messages"), any());
+    }
+
+    @Test
+    @DisplayName("客服回复：非 assignee 抛 403")
+    void staffSend_notAssignee_throws403() {
+        mockAuthUser(9L, AuthUtil.ROLE_STAFF, 5L);
+        when(chatSessionMapper.selectById(100L)).thenReturn(session(100L, 5L, 1L, 8L));
+
+        var ex = assertThrows(com.twentyzhang.bluewhale.exception.BusinessException.class,
+                () -> chatService.sendFromStaff(STAFF, staffReq(100L, "x")));
+        assertEquals(com.twentyzhang.bluewhale.common.Result.CODE_FORBIDDEN, ex.getCode());
+    }
+
+    @Test
+    @DisplayName("认领成功：写库 + 广播 CLAIMED")
+    void claim_success_broadcasts() {
+        mockAuthUser(9L, AuthUtil.ROLE_STAFF, 5L);
+        when(chatSessionMapper.selectById(100L)).thenReturn(session(100L, 5L, 1L, null));
+        when(chatSessionMapper.claim(100L, 9L)).thenReturn(1);
+        when(userMapper.selectById(9L)).thenReturn(
+                com.twentyzhang.bluewhale.entity.User.builder().id(9L).nickname("小蓝").build());
+
+        var resp = chatService.claim(STAFF, 100L);
+
+        assertEquals(9L, resp.getAssigneeStaffId());
+        verify(messagingTemplate).convertAndSend(eq("/topic/store.5"),
+                any(com.twentyzhang.bluewhale.dto.chat.StoreTopicEvent.class));
+    }
+
+    @Test
+    @DisplayName("认领失败：已被他人接待抛错且不广播")
+    void claim_alreadyClaimed_throws() {
+        mockAuthUser(9L, AuthUtil.ROLE_STAFF, 5L);
+        when(chatSessionMapper.selectById(100L))
+                .thenReturn(session(100L, 5L, 1L, null))
+                .thenReturn(session(100L, 5L, 1L, 8L));
+        when(chatSessionMapper.claim(100L, 9L)).thenReturn(0);
+        when(userMapper.selectById(8L)).thenReturn(
+                com.twentyzhang.bluewhale.entity.User.builder().id(8L).nickname("阿强").build());
+
+        var ex = assertThrows(com.twentyzhang.bluewhale.exception.BusinessException.class,
+                () -> chatService.claim(STAFF, 100L));
+        assertTrue(ex.getMessage().contains("阿强"));
+        verify(messagingTemplate, never()).convertAndSend(anyString(), any(Object.class));
+    }
+
+    @Test
+    @DisplayName("释放成功：广播 RELEASED")
+    void release_success_broadcasts() {
+        mockAuthUser(9L, AuthUtil.ROLE_STAFF, 5L);
+        when(chatSessionMapper.selectById(100L)).thenReturn(session(100L, 5L, 1L, 9L));
+        when(chatSessionMapper.release(100L, 9L)).thenReturn(1);
+
+        chatService.release(STAFF, 100L);
+
+        verify(messagingTemplate).convertAndSend(eq("/topic/store.5"),
+                any(com.twentyzhang.bluewhale.dto.chat.StoreTopicEvent.class));
+    }
+
+    @Test
+    @DisplayName("释放失败：非接待人抛 403")
+    void release_notOwner_throws403() {
+        mockAuthUser(9L, AuthUtil.ROLE_STAFF, 5L);
+        when(chatSessionMapper.selectById(100L)).thenReturn(session(100L, 5L, 1L, 8L));
+        when(chatSessionMapper.release(100L, 9L)).thenReturn(0);
+
+        var ex = assertThrows(com.twentyzhang.bluewhale.exception.BusinessException.class,
+                () -> chatService.release(STAFF, 100L));
+        assertEquals(com.twentyzhang.bluewhale.common.Result.CODE_FORBIDDEN, ex.getCode());
+    }
 }
