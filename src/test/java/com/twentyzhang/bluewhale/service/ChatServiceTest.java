@@ -117,7 +117,46 @@ class ChatServiceTest extends BaseServiceTest {
     @DisplayName("非 Customer 调用买家发消息抛 403")
     void customerSend_notCustomer_throws403() {
         mockAuthUser(9L, AuthUtil.ROLE_STAFF, 5L);
-        assertThrows(com.twentyzhang.bluewhale.exception.BusinessException.class,
+        com.twentyzhang.bluewhale.exception.BusinessException ex = assertThrows(
+                com.twentyzhang.bluewhale.exception.BusinessException.class,
                 () -> chatService.sendFromCustomer(STAFF, custReq(5L, "x")));
+        assertEquals(com.twentyzhang.bluewhale.common.Result.CODE_FORBIDDEN, ex.getCode());
+    }
+
+    @Test
+    @DisplayName("买家发消息：超长内容预览截断到 120，且不切断 emoji 代理对")
+    void customerSend_longContent_previewTruncatedSafely() {
+        mockAuthUser(1L, AuthUtil.ROLE_CUSTOMER, null);
+        when(chatSessionMapper.selectOne(any(), anyBoolean())).thenReturn(session(100L, 5L, 1L, null));
+        when(chatMessageMapper.insert(anyMsg())).thenReturn(1);
+        when(chatSessionMapper.updateById(anySession())).thenReturn(1);
+
+        // 第 120 个字符（index 119）放一个 emoji（代理对），其前 119 个为普通字符
+        String content = "a".repeat(119) + "😀" + "tail".repeat(50);
+        chatService.sendFromCustomer(CUSTOMER, custReq(5L, content));
+
+        org.mockito.ArgumentCaptor<ChatSession> captor = org.mockito.ArgumentCaptor.forClass(ChatSession.class);
+        verify(chatSessionMapper).updateById((ChatSession) captor.capture());
+        String preview = captor.getValue().getLastMessage();
+        // 截断到不超过 120，且结尾不是半个代理字符（整个 emoji 被一起丢弃）
+        assertEquals(119, preview.length());
+        assertFalse(Character.isHighSurrogate(preview.charAt(preview.length() - 1)));
+        assertTrue(preview.chars().allMatch(c -> c == 'a'));
+    }
+
+    @Test
+    @DisplayName("买家发消息：恰好 120 字不截断")
+    void customerSend_exactly120_notTruncated() {
+        mockAuthUser(1L, AuthUtil.ROLE_CUSTOMER, null);
+        when(chatSessionMapper.selectOne(any(), anyBoolean())).thenReturn(session(100L, 5L, 1L, null));
+        when(chatMessageMapper.insert(anyMsg())).thenReturn(1);
+        when(chatSessionMapper.updateById(anySession())).thenReturn(1);
+
+        String content = "b".repeat(120);
+        chatService.sendFromCustomer(CUSTOMER, custReq(5L, content));
+
+        org.mockito.ArgumentCaptor<ChatSession> captor = org.mockito.ArgumentCaptor.forClass(ChatSession.class);
+        verify(chatSessionMapper).updateById((ChatSession) captor.capture());
+        assertEquals(120, captor.getValue().getLastMessage().length());
     }
 }

@@ -27,6 +27,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -45,6 +46,7 @@ public class ChatServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSession>
 
     // ── 买家发消息 ─────────────────────────────────────────────────────────────
     @Override
+    @Transactional
     public ChatMessageResponse sendFromCustomer(AuthUser customer, CustomerSendRequest request) {
         AuthUtil.requireRole(AuthUtil.ROLE_CUSTOMER);
 
@@ -99,11 +101,22 @@ public class ChatServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSession>
                 .build();
         chatMessageMapper.insert(msg);
 
-        session.setLastMessage(content.length() > LAST_MESSAGE_PREVIEW_MAX
-                ? content.substring(0, LAST_MESSAGE_PREVIEW_MAX) : content);
+        session.setLastMessage(previewOf(content));
         session.setLastMessageAt(LocalDateTime.now());
         updateById(session);
         return msg;
+    }
+
+    /** 截取会话列表预览，避免在 UTF-16 代理对（emoji）中间切断产生半个字符。 */
+    private static String previewOf(String content) {
+        if (content.length() <= LAST_MESSAGE_PREVIEW_MAX) {
+            return content;
+        }
+        int end = LAST_MESSAGE_PREVIEW_MAX;
+        if (Character.isHighSurrogate(content.charAt(end - 1))) {
+            end--;
+        }
+        return content.substring(0, end);
     }
 
     private ChatMessageResponse toMessageView(ChatMessage m) {
