@@ -2,6 +2,7 @@ package com.twentyzhang.bluewhale.exception;
 
 import com.twentyzhang.bluewhale.common.Result;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -20,6 +21,13 @@ public class GlobalExceptionHandler {
                 .map(FieldError::getDefaultMessage)
                 .collect(Collectors.joining("; "));
         return Result.fail(Result.CODE_BAD_REQUEST, message);
+    }
+
+    /** 请求体无法解析（非法 JSON / 非 UTF-8 / 类型不匹配）→ 400，而非落入通用 500 */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public Result<Void> handleNotReadable(HttpMessageNotReadableException ex) {
+        log.warn("请求体解析失败: {}", ex.getMostSpecificCause().getMessage());
+        return Result.badRequest("请求体格式错误或无法解析");
     }
 
     /** 业务异常 → 使用异常内的 code */

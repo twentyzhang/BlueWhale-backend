@@ -546,19 +546,14 @@ class OrderServiceTest extends BaseServiceTest {
             when(orderMapper.selectById(1001L)).thenReturn(order(1001L, 1L, 100L, "PENDING_PAYMENT"));
             when(orderItemMapper.selectList(any())).thenReturn(List.of(
                     OrderItem.builder().orderId(1001L).productId(101L).quantity(2).build()));
-            when(productMapper.selectById(101L)).thenReturn(
-                    product(101L, "商品A", new BigDecimal("10.00"), 48, 100L));
-            when(productMapper.updateById(anyProduct())).thenReturn(1);
             when(orderMapper.updateById(anyOrder())).thenReturn(1);
 
             CancelOrderResponse resp = orderService.cancelOrder(1L, 1001L);
 
             assertEquals("CANCELLED", resp.getStatus());
             assertFalse(resp.getRefunded());
-            // 库存恢复：48 + 2 = 50
-            ArgumentCaptor<Product> captor = ArgumentCaptor.forClass(Product.class);
-            verify(productMapper).updateById((Product) captor.capture());
-            assertEquals(50, captor.getValue().getStock());
+            // 库存原子恢复：increaseStock(101, 2)
+            verify(productMapper).increaseStock(101L, 2);
         }
 
         @Test
@@ -568,19 +563,14 @@ class OrderServiceTest extends BaseServiceTest {
             when(orderMapper.selectById(1001L)).thenReturn(order(1001L, 1L, 100L, "PAID"));
             when(orderItemMapper.selectList(any())).thenReturn(List.of(
                     OrderItem.builder().orderId(1001L).productId(101L).quantity(3).build()));
-            when(productMapper.selectById(101L)).thenReturn(
-                    product(101L, "商品A", new BigDecimal("10.00"), 7, 100L)); // 当前库存 7
-            when(productMapper.updateById(anyProduct())).thenReturn(1);
             when(orderMapper.updateById(anyOrder())).thenReturn(1);
 
             CancelOrderResponse resp = orderService.cancelOrder(1L, 1001L);
 
             assertEquals("CANCELLED", resp.getStatus());
             assertTrue(resp.getRefunded());
-            // 7 + 3 = 10
-            ArgumentCaptor<Product> captor = ArgumentCaptor.forClass(Product.class);
-            verify(productMapper).updateById((Product) captor.capture());
-            assertEquals(10, captor.getValue().getStock());
+            // 库存原子恢复：increaseStock(101, 3)
+            verify(productMapper).increaseStock(101L, 3);
         }
 
         @Test
@@ -591,9 +581,6 @@ class OrderServiceTest extends BaseServiceTest {
                     .thenReturn(orderWithCoupon(1001L, 1L, 100L, "PAID", 5L));
             when(orderItemMapper.selectList(any())).thenReturn(List.of(
                     OrderItem.builder().orderId(1001L).productId(101L).quantity(1).build()));
-            when(productMapper.selectById(101L)).thenReturn(
-                    product(101L, "商品A", new BigDecimal("10.00"), 9, 100L));
-            when(productMapper.updateById(anyProduct())).thenReturn(1);
             when(couponMapper.update(isNull(), any())).thenReturn(1);
             when(orderMapper.updateById(anyOrder())).thenReturn(1);
 
@@ -627,17 +614,12 @@ class OrderServiceTest extends BaseServiceTest {
             when(orderMapper.selectById(1001L)).thenReturn(order(1001L, 1L, 100L, "PENDING_PAYMENT"));
             when(orderItemMapper.selectList(any())).thenReturn(List.of(
                     OrderItem.builder().orderId(1001L).productId(101L).quantity(2).build()));
-            when(productMapper.selectById(101L)).thenReturn(
-                    product(101L, "商品A", new BigDecimal("10.00"), 48, 100L));
-            when(productMapper.updateById(anyProduct())).thenReturn(1);
             when(orderMapper.updateById(anyOrder())).thenReturn(1);
 
             orderService.cancelExpiredUnpaidOrder(Order.builder().id(1001L).build());
 
-            // 库存恢复：48 + 2 = 50
-            ArgumentCaptor<Product> pc = ArgumentCaptor.forClass(Product.class);
-            verify(productMapper).updateById((Product) pc.capture());
-            assertEquals(50, pc.getValue().getStock());
+            // 库存原子恢复：increaseStock(101, 2)
+            verify(productMapper).increaseStock(101L, 2);
             // 订单状态置为 CANCELLED 且记录取消时间
             ArgumentCaptor<Order> oc = ArgumentCaptor.forClass(Order.class);
             verify(orderMapper).updateById((Order) oc.capture());
@@ -652,9 +634,6 @@ class OrderServiceTest extends BaseServiceTest {
                     .thenReturn(orderWithCoupon(1001L, 1L, 100L, "PENDING_PAYMENT", 5L));
             when(orderItemMapper.selectList(any())).thenReturn(List.of(
                     OrderItem.builder().orderId(1001L).productId(101L).quantity(1).build()));
-            when(productMapper.selectById(101L)).thenReturn(
-                    product(101L, "商品A", new BigDecimal("10.00"), 9, 100L));
-            when(productMapper.updateById(anyProduct())).thenReturn(1);
             when(couponMapper.update(isNull(), any())).thenReturn(1);
             when(orderMapper.updateById(anyOrder())).thenReturn(1);
 
@@ -671,7 +650,7 @@ class OrderServiceTest extends BaseServiceTest {
             orderService.cancelExpiredUnpaidOrder(Order.builder().id(1001L).build());
 
             verify(orderMapper, never()).updateById(anyOrder());
-            verify(productMapper, never()).updateById(anyProduct());
+            verify(productMapper, never()).increaseStock(any(), anyInt());
             verify(orderItemMapper, never()).selectList(any());
         }
     }
@@ -724,9 +703,6 @@ class OrderServiceTest extends BaseServiceTest {
                     .thenReturn(orderWithCoupon(1001L, 1L, 100L, "COMPLETED", 5L));
             when(orderItemMapper.selectList(any())).thenReturn(List.of(
                     OrderItem.builder().orderId(1001L).productId(101L).quantity(2).build()));
-            when(productMapper.selectById(101L)).thenReturn(
-                    product(101L, "商品A", new BigDecimal("10.00"), 18, 100L));
-            when(productMapper.updateById(anyProduct())).thenReturn(1);
             when(couponMapper.update(isNull(), any())).thenReturn(1);
             when(orderMapper.updateById(anyOrder())).thenReturn(1);
 
@@ -735,10 +711,8 @@ class OrderServiceTest extends BaseServiceTest {
             assertEquals("CANCELLED", resp.getStatus());
             assertNotNull(resp.getRefundedAt());
 
-            // 库存验证：18 + 2 = 20
-            ArgumentCaptor<Product> captor = ArgumentCaptor.forClass(Product.class);
-            verify(productMapper).updateById((Product) captor.capture());
-            assertEquals(20, captor.getValue().getStock());
+            // 库存原子恢复：increaseStock(101, 2)
+            verify(productMapper).increaseStock(101L, 2);
 
             // 优惠券恢复验证
             verify(couponMapper).update(isNull(), any());

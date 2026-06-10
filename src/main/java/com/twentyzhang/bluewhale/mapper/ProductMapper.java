@@ -42,4 +42,16 @@ public interface ProductMapper extends BaseMapper<Product> {
     int updateStockTo(@Param("id") Long id,
                       @Param("stock") int stock,
                       @Param("version") Integer version);
+
+    /**
+     * 原子增加库存（取消/退款恢复库存用）：{@code stock = stock + #{quantity}}，无需版本校验。
+     * 加库存恒安全，用原子自增替代「读-改-写」，消除并发丢失更新窗口。
+     * 同步推进 version 以与其他库存变更保持一致。逻辑删除的商品（deleted=1）返回 0 行、自动跳过。
+     */
+    @Update("""
+            UPDATE product
+            SET stock = stock + #{quantity}, version = version + 1
+            WHERE id = #{id} AND deleted = 0
+            """)
+    int increaseStock(@Param("id") Long id, @Param("quantity") int quantity);
 }

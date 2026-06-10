@@ -548,16 +548,16 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         throw new BusinessException("库存更新失败，请重试");
     }
 
-    /** 恢复该订单所有条目对应商品的库存。逻辑删除的商品跳过，不影响取消流程。 */
+    /**
+     * 恢复该订单所有条目对应商品的库存。
+     * 使用原子自增 {@code stock = stock + qty}（{@link ProductMapper#increaseStock}），
+     * 替代「读-改-写」，消除并发丢失更新窗口。逻辑删除的商品返回 0 行、自动跳过，不影响取消流程。
+     */
     private void restoreInventory(Long orderId) {
         List<OrderItem> items = orderItemMapper.selectList(
                 new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, orderId));
         for (OrderItem item : items) {
-            Product product = productMapper.selectById(item.getProductId());
-            if (product != null) {
-                product.setStock(product.getStock() + item.getQuantity());
-                productMapper.updateById(product);
-            }
+            productMapper.increaseStock(item.getProductId(), item.getQuantity());
         }
     }
 

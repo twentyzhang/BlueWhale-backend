@@ -203,9 +203,13 @@ accessToken 过期后，用 refreshToken 换取新 token，无需重新登录：
 | 401 | 未登录 / Token 无效或过期 | 未带 token、token 过期、refreshToken 失效 | 触发刷新或跳转登录 |
 | 403 | 无权限 | 角色不符、Staff 操作他店资源、访问他人数据 | 提示「无权限」，不可重试 |
 | 404 | 资源不存在 | 商品 / 订单 / 地址 / 分类等不存在 | 提示资源不存在 |
-| 500 | 服务器内部错误 | 未预期异常、请求体非法（如非 UTF-8 / JSON 解析失败） | 提示「服务繁忙，请稍后重试」 |
+| 500 | 服务器内部错误 | 未预期异常 | 提示「服务繁忙，请稍后重试」 |
 
-> **关于 HTTP 状态码：** 未登录访问受保护接口时，请求被 Spring Security 在进入业务层前拦截，此时返回 **HTTP 403**（空响应体）。带了无效/过期 token 同理。前端拦截器应把「HTTP 401/403 且响应体为空」也并入「需要重新登录/刷新」分支处理。
+> **🔄 第二轮 A 变更（非破坏性）：**
+> - **未登录访问受保护接口现返回 HTTP 401**（此前为 403），且带统一 `Result` 响应体（`{code:401, message, data:null}`）——不再是空响应体。无效/过期 token 同理。无权限（已登录但角色/归属不符）由 Spring Security 直接拦截的少数场景返回 HTTP 403 + `Result` 体。
+> - **非法请求体**（非 JSON / 非 UTF-8 / 类型不匹配）现返回**业务码 400**（HTTP 200，与其余校验错误一致），不再是 500。
+>
+> **关于 HTTP 状态码：** 业务层错误大多 HTTP 200、靠响应体 `code` 区分；仅被 Spring Security 拦截的未认证/无权限场景用真实 HTTP 401/403（现也带 `Result` 体）。前端**以响应体 `code` 为准**即可统一处理。
 
 ### 建议的统一错误处理
 
@@ -221,9 +225,14 @@ api.interceptors.response.use(
     return Promise.reject(resp.data);
   },
   (err) => {
-    // HTTP 403/401（被 Security 拦截，无响应体）→ 当作未登录
-    if (err.response && [401, 403].includes(err.response.status) && !err.response.data) {
+    // HTTP 401（被 Security 拦截，未认证，现带 Result 体）→ 触发刷新/重登
+    if (err.response && err.response.status === 401) {
       return tryRefreshThenRetry(err.config);
+    }
+    // HTTP 403（已登录但无权限）→ 提示，不重试
+    if (err.response && err.response.status === 403) {
+      toast(err.response.data?.message || '无权限');
+      return Promise.reject(err);
     }
     toast('网络或服务异常');
     return Promise.reject(err);
