@@ -61,6 +61,7 @@ class RecommendationServiceTest extends BaseServiceTest {
                 interaction(4, 40, "COMPLETED")
         );
         when(recommendationMapper.selectInteractions(null)).thenReturn(rows);
+        when(recommendationMapper.selectUserProductRatings()).thenReturn(List.of());
 
         int written = service.rebuildAll();
 
@@ -82,6 +83,43 @@ class RecommendationServiceTest extends BaseServiceTest {
         return all.stream()
                 .filter(s -> s.getProductId() == pid && s.getSimilarProductId() == sid)
                 .findFirst().orElseThrow().getScore().doubleValue();
+    }
+
+    // ── 评分加权（C3） ──────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("ratingMultiplier：高分增强、低分削弱、无评分中性")
+    void ratingMultiplier_mapsRatingToFactor() {
+        assertEquals(1.5, RecommendationServiceImpl.ratingMultiplier(5));
+        assertEquals(1.2, RecommendationServiceImpl.ratingMultiplier(4));
+        assertEquals(1.0, RecommendationServiceImpl.ratingMultiplier(3));
+        assertEquals(0.7, RecommendationServiceImpl.ratingMultiplier(2));
+        assertEquals(0.5, RecommendationServiceImpl.ratingMultiplier(1));
+        assertEquals(1.0, RecommendationServiceImpl.ratingMultiplier(null));
+    }
+
+    @Test
+    @DisplayName("rebuildAll：评分加权改变相似度（同被两人购买，一人高分评价使向量偏移）")
+    void rebuildAll_appliesRatingWeighting() {
+        // 商品10、20 同被用户1、2 购买(COMPLETED) → 无评分时相似度=1.0
+        List<Map<String, Object>> rows = List.of(
+                interaction(1, 10, "COMPLETED"), interaction(2, 10, "COMPLETED"),
+                interaction(1, 20, "COMPLETED"), interaction(2, 20, "COMPLETED"));
+        when(recommendationMapper.selectInteractions(null)).thenReturn(rows);
+        // 用户1 给商品10 打 5 星（×1.5）→ 商品10 向量被拉偏 → 10↔20 相似度 < 1.0
+        Map<String, Object> rating = new HashMap<>();
+        rating.put("userId", 1L);
+        rating.put("productId", 10L);
+        rating.put("rating", 5);
+        when(recommendationMapper.selectUserProductRatings()).thenReturn(List.of(rating));
+
+        service.rebuildAll();
+
+        ArgumentCaptor<ProductSimilarity> cap = ArgumentCaptor.forClass(ProductSimilarity.class);
+        verify(recommendationMapper, atLeastOnce()).insert(cap.capture());
+        double sim10to20 = scoreOf(cap.getAllValues(), 10L, 20L);
+        assertTrue(sim10to20 > 0.0 && sim10to20 < 1.0,
+                "评分加权后 10↔20 相似度应落在 (0,1)，实际 " + sim10to20);
     }
 
     // ── 接口 A ────────────────────────────────────────────────────────────────
@@ -138,6 +176,24 @@ class RecommendationServiceTest extends BaseServiceTest {
 
         assertEquals(2, out.size());
         assertTrue(out.stream().noneMatch(r -> r.getId() == 10L), "兜底不含商品自身");
+    }
+
+    @Test
+    @DisplayName("getRelated 空相似：写哨兵，第二次请求命中哨兵不再回表（C1）")
+    void getRelated_emptySimilar_cachesSentinel() {
+        when(redisUtil.zRevRange("rec:sim:10", 0, 4)).thenReturn(List.of());
+        when(redisUtil.hasKey("rec:sim:empty:10")).thenReturn(false, true);   // 1st 缺失，2nd 命中
+        when(recommendationMapper.selectTopSimilar(10L, RecommendationServiceImpl.TOP_N))
+                .thenReturn(List.of());
+        when(productMapper.selectById(10L)).thenReturn(product(10, 5L));
+        when(recommendationMapper.selectCategoryHotProductIds(5L, 10)).thenReturn(List.of());
+        when(recommendationMapper.selectGlobalHotProductIds(10)).thenReturn(List.of());
+
+        service.getRelated(10L, 5);   // 第一次：回表空 → 写哨兵
+        service.getRelated(10L, 5);   // 第二次：命中哨兵 → 跳过回表
+
+        verify(redisUtil).setWithExpire(eq("rec:sim:empty:10"), anyString(), anyLong(), any());
+        verify(recommendationMapper, times(1)).selectTopSimilar(10L, RecommendationServiceImpl.TOP_N);
     }
 
     // ── 接口 B ────────────────────────────────────────────────────────────────

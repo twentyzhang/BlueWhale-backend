@@ -27,6 +27,17 @@ public interface RecommendationMapper extends BaseMapper<ProductSimilarity> {
             """)
     List<Map<String, Object>> selectInteractions(@Param("userId") Long userId);
 
+    /**
+     * 用户对商品的评分（一级评价，rating 非空），供重建时按评分加权兴趣信号。
+     * 同一用户对同一商品可能有多条（多笔订单各评一次），服务层取最高分。
+     */
+    @Select("""
+            SELECT user_id AS userId, product_id AS productId, rating
+            FROM review
+            WHERE deleted = 0 AND parent_id IS NULL AND rating IS NOT NULL
+            """)
+    List<Map<String, Object>> selectUserProductRatings();
+
     /** 某商品的 Top 相似商品（含 score），按相似度降序。 */
     @Select("""
             SELECT product_id AS productId,

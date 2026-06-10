@@ -37,6 +37,10 @@ public class RecommendationServiceImpl implements RecommendationService {
     static final String SIM_KEY_PREFIX = "rec:sim:";
     /** 相似度缓存 TTL（秒），1 天，下次重建会清缓存。 */
     static final long SIM_TTL_SECONDS = 24 * 60 * 60;
+    /** 空相似结果哨兵键前缀（冷门商品无相似时占位，避免反复回表）。前缀含 rec:sim: 故重建清缓存时一并清除。 */
+    static final String EMPTY_SENTINEL_PREFIX = "rec:sim:empty:";
+    /** 空结果哨兵 TTL（秒），5 分钟。 */
+    static final long EMPTY_SENTINEL_TTL_SECONDS = 5 * 60;
 
     /** 订单状态 → 兴趣权重。集中定义，便于调参（spec §2.2）。 */
     static double weightOf(String status) {
@@ -48,14 +52,32 @@ public class RecommendationServiceImpl implements RecommendationService {
         };
     }
 
+    /**
+     * 评分 → 兴趣权重乘子（第二轮 C3）：高分增强、低分削弱该用户对该商品的兴趣信号，无评分按 1.0。
+     * public 便于测试跨包引用。
+     */
+    public static double ratingMultiplier(Integer rating) {
+        if (rating == null) {
+            return 1.0;
+        }
+        return switch (rating) {
+            case 5 -> 1.5;
+            case 4 -> 1.2;
+            case 2 -> 0.7;
+            case 1 -> 0.5;
+            default -> 1.0;   // 3 星及异常值视为中性
+        };
+    }
+
     // ============================ 重建（离线 / Admin 手动） ============================
 
     @Override
     @Transactional
     public int rebuildAll() {
         List<Map<String, Object>> rows = recommendationMapper.selectInteractions(null);
-        // productId -> (userId -> 最大权重)
-        Map<Long, Map<Long, Double>> vectors = buildVectors(rows);
+        Map<String, Integer> ratings = loadRatings();
+        // productId -> (userId -> 最大权重，再按评分加权)
+        Map<Long, Map<Long, Double>> vectors = buildVectors(rows, ratings);
 
         recommendationMapper.deleteAllSimilarities();
 
@@ -91,8 +113,13 @@ public class RecommendationServiceImpl implements RecommendationService {
         return written;
     }
 
-    /** 从原始交互行构建 productId -> (userId -> 最大权重) 向量。 */
-    private Map<Long, Map<Long, Double>> buildVectors(List<Map<String, Object>> rows) {
+    /**
+     * 从原始交互行构建 productId -> (userId -> 权重) 向量：先取状态最大权重，再乘以评分乘子（C3）。
+     *
+     * @param ratingByUserProduct key="userId:productId" → 评分（1-5），无评分则缺省
+     */
+    private Map<Long, Map<Long, Double>> buildVectors(List<Map<String, Object>> rows,
+                                                      Map<String, Integer> ratingByUserProduct) {
         Map<Long, Map<Long, Double>> vectors = new HashMap<>();
         for (Map<String, Object> row : rows) {
             double w = weightOf((String) row.get("status"));
@@ -103,7 +130,31 @@ public class RecommendationServiceImpl implements RecommendationService {
             Long productId = ((Number) row.get("productId")).longValue();
             vectors.computeIfAbsent(productId, k -> new HashMap<>()).merge(userId, w, Math::max);
         }
+        // 评分加权：对每个 (用户,商品) 的状态权重乘以评分乘子
+        if (!ratingByUserProduct.isEmpty()) {
+            for (Map.Entry<Long, Map<Long, Double>> pe : vectors.entrySet()) {
+                Long productId = pe.getKey();
+                for (Map.Entry<Long, Double> ue : pe.getValue().entrySet()) {
+                    Integer rating = ratingByUserProduct.get(ue.getKey() + ":" + productId);
+                    if (rating != null) {
+                        ue.setValue(ue.getValue() * ratingMultiplier(rating));
+                    }
+                }
+            }
+        }
         return vectors;
+    }
+
+    /** 加载评分映射 key="userId:productId" → 最高分（同用户同商品多评取最强满意信号）。 */
+    private Map<String, Integer> loadRatings() {
+        Map<String, Integer> map = new HashMap<>();
+        for (Map<String, Object> r : recommendationMapper.selectUserProductRatings()) {
+            Long userId = ((Number) r.get("userId")).longValue();
+            Long productId = ((Number) r.get("productId")).longValue();
+            Integer rating = ((Number) r.get("rating")).intValue();
+            map.merge(userId + ":" + productId, rating, Math::max);
+        }
+        return map;
     }
 
     // ============================ 接口 A：商品相关推荐 ============================
@@ -128,8 +179,14 @@ public class RecommendationServiceImpl implements RecommendationService {
         if (!cached.isEmpty()) {
             return cached.stream().map(Long::valueOf).collect(Collectors.toList());
         }
+        // 空结果哨兵：已知该商品无相似（冷门/新品）时直接返回，避免反复回表（C1）
+        if (Boolean.TRUE.equals(redisUtil.hasKey(EMPTY_SENTINEL_PREFIX + productId))) {
+            return new ArrayList<>();
+        }
         List<ProductSimilarity> rows = recommendationMapper.selectTopSimilar(productId, TOP_N);
         if (rows.isEmpty()) {
+            redisUtil.setWithExpire(EMPTY_SENTINEL_PREFIX + productId, "1",
+                    EMPTY_SENTINEL_TTL_SECONDS, TimeUnit.SECONDS);
             return new ArrayList<>();
         }
         for (ProductSimilarity r : rows) {
