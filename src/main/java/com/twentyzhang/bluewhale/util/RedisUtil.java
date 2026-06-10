@@ -42,6 +42,13 @@ public class RedisUtil {
     }
 
     /**
+     * 原子自增并返回新值（key 不存在则从 0 自增到 1）。用于令牌版本号等计数。
+     */
+    public Long increment(String key) {
+        return stringRedisTemplate.opsForValue().increment(key);
+    }
+
+    /**
      * 删除指定 key，返回是否删除成功
      */
     public Boolean delete(String key) {

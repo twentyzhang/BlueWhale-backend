@@ -154,6 +154,20 @@ null
 
 > **刷新即轮换**：每次刷新会签发新的 accessToken **并轮换 refreshToken**（旧 refreshToken 立即失效，新的重置 7 天有效期）。前端必须用响应中的新 `refreshToken` 覆盖本地存储。
 > refreshToken 无效 / 不匹配 / 已过期 → 返回 `401`，前端应跳转重新登录。
+> **accessToken 有效期 15 分钟**（第二轮 E 由 24h 缩短），前端需配合更频繁刷新。
+
+---
+
+### POST /api/auth/logout — 退出登录
+
+**权限：** 需携带有效 accessToken（从中解析当前用户）
+
+**请求体：** 无（`{}`）
+
+**响应 data：** `null`
+
+> **即时撤销**：登出后立即**自增该用户令牌版本 + 删除 refreshToken**，使其**全部已签发 accessToken 立即失效**（不再等 15 分钟过期）、refreshToken 也不可用。前端登出后清除本地 token、跳转登录页。
+> 改密（`PUT /api/users/me/password`）成功后同样触发该撤销，需重新登录。
 
 ---
 
@@ -1432,6 +1446,7 @@ Authorization: Bearer <admin-token>
 | **用户** | POST | `/api/auth/register` | 无需登录 |
 | | POST | `/api/auth/login` | 无需登录 |
 | | POST | `/api/auth/refresh` | 无需登录（凭 refreshToken） |
+| | POST | `/api/auth/logout` | 需携带有效 token |
 | | GET | `/api/users/me` | 需要登录 |
 | | PUT | `/api/users/me` | 需要登录 |
 | | PUT | `/api/users/me/password` | 需要登录 |

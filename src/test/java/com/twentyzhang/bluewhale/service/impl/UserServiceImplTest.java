@@ -7,6 +7,7 @@ import com.twentyzhang.bluewhale.exception.BusinessException;
 import com.twentyzhang.bluewhale.mapper.UserMapper;
 import com.twentyzhang.bluewhale.util.JwtUtil;
 import com.twentyzhang.bluewhale.util.RedisUtil;
+import com.twentyzhang.bluewhale.util.TokenVersionStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,9 @@ class UserServiceImplTest extends BaseServiceTest {
 
     @Mock
     private RedisUtil redisUtil;
+
+    @Mock
+    private TokenVersionStore tokenVersionStore;
 
     @InjectMocks
     private UserServiceImpl userService;
@@ -96,7 +100,7 @@ class UserServiceImplTest extends BaseServiceTest {
 
         when(userMapper.selectByPhone("13800138000")).thenReturn(user);
         when(passwordEncoder.matches("Abc123456", "hashed")).thenReturn(true);
-        when(jwtUtil.generateToken(1L, "CUSTOMER", null)).thenReturn("jwt.token");
+        when(jwtUtil.generateToken(1L, "CUSTOMER", null, 0L)).thenReturn("jwt.token");
 
         LoginResponse resp = userService.login(req);
 

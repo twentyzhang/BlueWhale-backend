@@ -46,7 +46,14 @@ public interface UserService extends IService<User> {
 
     /**
      * 修改当前用户密码。校验旧密码正确性及两次新密码一致性。
+     * 改密成功后自增令牌版本并删除 refreshToken，强制旧令牌全部失效、需重新登录。
      * 对应 PUT /api/users/me/password
      */
     void changePassword(Long userId, ChangePasswordRequest request);
+
+    /**
+     * 退出登录。自增令牌版本（使该用户已签发的 access token 立即失效）并删除 refreshToken。
+     * 对应 POST /api/auth/logout
+     */
+    void logout(Long userId);
 }

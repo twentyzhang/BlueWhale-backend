@@ -2,6 +2,7 @@ package com.twentyzhang.bluewhale.filter;
 
 import com.twentyzhang.bluewhale.common.AuthUser;
 import com.twentyzhang.bluewhale.util.JwtUtil;
+import com.twentyzhang.bluewhale.util.TokenVersionStore;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -22,6 +23,7 @@ import java.util.List;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtUtil jwtUtil;
+    private final TokenVersionStore tokenVersionStore;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -41,6 +43,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         Long userId  = jwtUtil.getUserId(token);
+
+        // 即时撤销校验：令牌版本低于当前版本（退出登录/改密后）视为已失效，不写入认证上下文
+        if (!tokenVersionStore.isCurrent(userId, jwtUtil.getTokenVersion(token))) {
+            chain.doFilter(request, response);
+            return;
+        }
+
         String role  = jwtUtil.getRole(token);
         Long storeId = jwtUtil.getStoreId(token);
 

@@ -8,6 +8,7 @@ import com.twentyzhang.bluewhale.mapper.UserMapper;
 import com.twentyzhang.bluewhale.service.impl.UserServiceImpl;
 import com.twentyzhang.bluewhale.util.JwtUtil;
 import com.twentyzhang.bluewhale.util.RedisUtil;
+import com.twentyzhang.bluewhale.util.TokenVersionStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -36,6 +37,9 @@ class UserServiceTest extends BaseServiceTest {
 
     @Mock
     private RedisUtil redisUtil;
+
+    @Mock
+    private TokenVersionStore tokenVersionStore;
 
     @InjectMocks
     private UserServiceImpl userService;
@@ -116,7 +120,7 @@ class UserServiceTest extends BaseServiceTest {
 
             when(userMapper.selectByPhone("13800138000")).thenReturn(user);
             when(passwordEncoder.matches("Abc123456", "hashed")).thenReturn(true);
-            when(jwtUtil.generateToken(1L, "CUSTOMER", null)).thenReturn("access.jwt.token");
+            when(jwtUtil.generateToken(1L, "CUSTOMER", null, 0L)).thenReturn("access.jwt.token");
 
             LoginResponse resp = userService.login(req);
 
@@ -271,6 +275,44 @@ class UserServiceTest extends BaseServiceTest {
             assertEquals("两次输入的新密码不一致", ex.getMessage());
             // 密码不一致应在查库前就失败
             verify(userMapper, never()).selectById(anyLong());
+        }
+
+        @Test
+        @DisplayName("改密成功后撤销令牌：自增版本 + 删除 refreshToken")
+        void success_revokesTokens() {
+            ChangePasswordRequest req = new ChangePasswordRequest();
+            req.setOldPassword("old123");
+            req.setNewPassword("New456789");
+            req.setConfirmPassword("New456789");
+
+            User user = User.builder().id(1L).password("hashed_old").build();
+            when(userMapper.selectById(1L)).thenReturn(user);
+            when(passwordEncoder.matches("old123", "hashed_old")).thenReturn(true);
+            when(passwordEncoder.encode("New456789")).thenReturn("hashed_new");
+            when(userMapper.updateById(any(User.class))).thenReturn(1);
+
+            userService.changePassword(1L, req);
+
+            verify(tokenVersionStore).bump(1L);
+            verify(redisUtil).delete("refresh_token:1");
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // logout
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("logout")
+    class Logout {
+
+        @Test
+        @DisplayName("自增令牌版本并删除 refreshToken")
+        void bumpsVersionAndDeletesRefresh() {
+            userService.logout(1L);
+
+            verify(tokenVersionStore).bump(1L);
+            verify(redisUtil).delete("refresh_token:1");
         }
     }
 }

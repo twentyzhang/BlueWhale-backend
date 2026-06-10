@@ -22,19 +22,27 @@ public class JwtUtil {
 
     private static final String CLAIM_ROLE     = "role";
     private static final String CLAIM_STORE_ID = "storeId";
+    private static final String CLAIM_VERSION  = "ver";
 
     /**
-     * 生成 Token，Payload 包含 userId（subject）、role、storeId（Staff 才有值）
+     * 生成 Token，Payload 包含 userId（subject）、role、storeId（Staff 才有值）、令牌版本 ver（支撑即时撤销）。
      */
-    public String generateToken(Long userId, String role, Long storeId) {
+    public String generateToken(Long userId, String role, Long storeId, long tokenVersion) {
         return Jwts.builder()
                 .subject(String.valueOf(userId))
                 .claim(CLAIM_ROLE, role)
                 .claim(CLAIM_STORE_ID, storeId)
+                .claim(CLAIM_VERSION, tokenVersion)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + expiration))
                 .signWith(key())
                 .compact();
+    }
+
+    /** 读取令牌版本声明 ver；旧版无此声明的 token 视为版本 0（向后兼容）。 */
+    public long getTokenVersion(String token) {
+        Number ver = parseClaims(token).get(CLAIM_VERSION, Number.class);
+        return ver == null ? 0L : ver.longValue();
     }
 
     public Long getUserId(String token) {

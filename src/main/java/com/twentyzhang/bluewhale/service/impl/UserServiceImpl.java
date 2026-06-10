@@ -16,6 +16,7 @@ import com.twentyzhang.bluewhale.mapper.UserMapper;
 import com.twentyzhang.bluewhale.service.UserService;
 import com.twentyzhang.bluewhale.util.JwtUtil;
 import com.twentyzhang.bluewhale.util.RedisUtil;
+import com.twentyzhang.bluewhale.util.TokenVersionStore;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final RedisUtil redisUtil;
+    private final TokenVersionStore tokenVersionStore;
 
     private static final String REFRESH_TOKEN_PREFIX = "refresh_token:";
     private static final long REFRESH_TOKEN_DAYS = 7;
@@ -54,7 +56,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (user == null || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             throw new BusinessException("手机号或密码不正确");
         }
-        String accessToken  = jwtUtil.generateToken(user.getId(), user.getRole(), user.getStoreId());
+        String accessToken  = jwtUtil.generateToken(user.getId(), user.getRole(), user.getStoreId(),
+                tokenVersionStore.current(user.getId()));
         String refreshToken = UUID.randomUUID().toString().replace("-", "");
         redisUtil.setWithExpire(REFRESH_TOKEN_PREFIX + user.getId(), refreshToken,
                 REFRESH_TOKEN_DAYS, TimeUnit.DAYS);
@@ -78,7 +81,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (user == null) {
             throw new BusinessException(Result.CODE_UNAUTHORIZED, "用户不存在，请重新登录");
         }
-        String accessToken     = jwtUtil.generateToken(user.getId(), user.getRole(), user.getStoreId());
+        String accessToken     = jwtUtil.generateToken(user.getId(), user.getRole(), user.getStoreId(),
+                tokenVersionStore.current(user.getId()));
         String newRefreshToken = UUID.randomUUID().toString().replace("-", "");
         // 轮换 refreshToken 并重置 7 天有效期，旧 token 立即失效
         redisUtil.setWithExpire(REFRESH_TOKEN_PREFIX + user.getId(), newRefreshToken,
@@ -128,6 +132,17 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         updateById(user);
+
+        // 改密后撤销该用户全部已签发令牌：自增令牌版本 + 删除 refreshToken，强制重新登录
+        tokenVersionStore.bump(userId);
+        redisUtil.delete(REFRESH_TOKEN_PREFIX + userId);
+    }
+
+    @Override
+    public void logout(Long userId) {
+        // 自增令牌版本使 access token 立即失效 + 删除 refreshToken 阻断刷新
+        tokenVersionStore.bump(userId);
+        redisUtil.delete(REFRESH_TOKEN_PREFIX + userId);
     }
 
     private String maskPhone(String phone) {

@@ -109,8 +109,8 @@ class ChatWebSocketIntegrationTest {
         long customerId = 1_000_000 + (System.nanoTime() % 1_000_000_000L);
         long storeId = 7_777_777L;
         long staffId = 8_888_888L;
-        String custJwt = jwtUtil.generateToken(customerId, AuthUtil.ROLE_CUSTOMER, null);
-        String staffJwt = jwtUtil.generateToken(staffId, AuthUtil.ROLE_STAFF, storeId);
+        String custJwt = jwtUtil.generateToken(customerId, AuthUtil.ROLE_CUSTOMER, null, 0L);
+        String staffJwt = jwtUtil.generateToken(staffId, AuthUtil.ROLE_STAFF, storeId, 0L);
 
         StompSession customer = connect(custJwt);
         StompSession staff = connect(staffJwt);
