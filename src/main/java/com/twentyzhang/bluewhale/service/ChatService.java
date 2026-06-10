@@ -24,4 +24,10 @@ public interface ChatService extends IService<ChatSession> {
     List<ChatSessionItemResponse> listSessions(AuthUser user);
 
     List<ChatMessageResponse> getMessages(AuthUser user, Long sessionId, Long before, int size);
+
+    /**
+     * 接待超时自动释放（系统级，定时任务调用，不读 SecurityContext）：
+     * 扫描所有已接入会话，归属客服当前不在线者自动释放并广播 RELEASED。返回释放数量。
+     */
+    int autoReleaseOfflineAssignees();
 }

@@ -528,7 +528,9 @@ client.publish({
 #### 11.5 注意事项
 
 - **token 续期**：WebSocket 连接建立后 token 过期不会自动断开，但建议在页面加载时先确保 accessToken 有效（调 `/api/auth/refresh`），再建立 WS 连接；或在 onStompError 时重连。
-- **当前实现不发 STOMP ERROR 帧**：token 无效时后端拒绝 CONNECT，WS 连接关闭，客户端收不到结构化 STOMP ERROR 帧（后续版本会补），可监听 `onDisconnect` / `onWebSocketClose` 作为失败信号。
+- **STOMP ERROR 帧（第二轮 B2 已补）**：token 无效 / 处理失败时后端回送结构化 STOMP ERROR 帧（含友好原因），可在客户端 `onStompError` 中读取 `frame.headers['message']` 提示并重连；连接仍会关闭。
+- **接待超时自动释放（第二轮 B1）**：客服掉线超过约 5 分钟（后台定时扫描），其接待中的会话会被**自动释放**回公共池并广播 `StoreTopicEvent{RELEASED}`。客服端收到后应把该会话移回"待接入"列表（与手动 release 行为一致）。
+- **心跳（第二轮 B3）**：后端启用了 STOMP 心跳（10s）。建议前端 STOMP 客户端也开启心跳（stompjs 默认开启），以便掉线被及时探测、在线状态准确。
 - **消息顺序**：同一会话内消息按 `id`（自增）有序；`id` 可直接用于游标分页。
 - **建议联调顺序**：① ADMIN 建商店，STAFF 绑定；② CUSTOMER 登录，连接 WS，发第一条消息建会话；③ STAFF 登录，连接 WS，订阅店铺主题，收到 `StoreTopicEvent{type:MESSAGE}`；④ STAFF 调 `/claim` 接入；⑤ 双向收发消息；⑥ STAFF 调 `/release` 释放。
 

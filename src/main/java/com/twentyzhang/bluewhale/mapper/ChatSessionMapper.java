@@ -4,10 +4,21 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.twentyzhang.bluewhale.entity.ChatSession;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
+
+import java.util.List;
 
 @Mapper
 public interface ChatSessionMapper extends BaseMapper<ChatSession> {
+
+    /** 查所有已接入（assignee 非空）会话，供超时自动释放任务扫描。 */
+    @Select("""
+            SELECT id, store_id, customer_id, assignee_staff_id
+            FROM chat_session
+            WHERE assignee_staff_id IS NOT NULL AND deleted = 0
+            """)
+    List<ChatSession> selectClaimedSessions();
 
     /**
      * 原子认领：仅当会话尚未被接入时才写入 assignee。

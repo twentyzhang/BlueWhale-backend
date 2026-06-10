@@ -369,4 +369,23 @@ class ChatServiceTest extends BaseServiceTest {
                 () -> chatService.getMessages(CUSTOMER, 999L, null, 20));
         assertEquals(com.twentyzhang.bluewhale.common.Result.CODE_NOT_FOUND, ex.getCode());
     }
+
+    @Test
+    @DisplayName("autoReleaseOfflineAssignees：离线客服的会话释放并广播，在线的跳过（B1）")
+    void autoRelease_releasesOfflineAssigneeSessions() {
+        // 会话101 归属客服9（store5）离线 → 释放；会话102 归属客服8（store5）在线 → 跳过
+        ChatSession s1 = session(101L, 5L, 1L, 9L);
+        ChatSession s2 = session(102L, 5L, 2L, 8L);
+        when(chatSessionMapper.selectClaimedSessions()).thenReturn(java.util.List.of(s1, s2));
+        when(redisUtil.sIsMember("cs:online:store:5", "9")).thenReturn(false);  // 离线
+        when(redisUtil.sIsMember("cs:online:store:5", "8")).thenReturn(true);   // 在线
+        when(chatSessionMapper.release(101L, 9L)).thenReturn(1);
+
+        int released = chatService.autoReleaseOfflineAssignees();
+
+        assertEquals(1, released);
+        verify(chatSessionMapper).release(101L, 9L);
+        verify(chatSessionMapper, never()).release(eq(102L), anyLong());
+        verify(messagingTemplate).convertAndSend(eq("/topic/store.5"), any(StoreTopicEvent.class));
+    }
 }

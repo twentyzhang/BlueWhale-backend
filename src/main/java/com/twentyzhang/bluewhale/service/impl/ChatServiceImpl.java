@@ -221,6 +221,30 @@ public class ChatServiceImpl extends ServiceImpl<ChatSessionMapper, ChatSession>
                         .build()));
     }
 
+    // ── 接待超时自动释放（系统级，无 SecurityContext） ────────────────────────────
+    @Override
+    public int autoReleaseOfflineAssignees() {
+        int released = 0;
+        for (ChatSession s : baseMapper.selectClaimedSessions()) {
+            Long staffId = s.getAssigneeStaffId();
+            boolean online = Boolean.TRUE.equals(redisUtil.sIsMember(
+                    ChatKeys.onlineStoreStaff(s.getStoreId()), String.valueOf(staffId)));
+            if (online) {
+                continue;   // 归属客服仍在线，跳过
+            }
+            // 原子释放（仅当 assignee 仍是该离线客服时生效），成功后广播回公共池
+            if (baseMapper.release(s.getId(), staffId) > 0) {
+                released++;
+                messagingTemplate.convertAndSend("/topic/store." + s.getStoreId(),
+                        StoreTopicEvent.builder()
+                                .type(StoreTopicEvent.TYPE_RELEASED)
+                                .sessionId(s.getId())
+                                .build());
+            }
+        }
+        return released;
+    }
+
     @Override
     public List<ChatSessionItemResponse> listSessions(AuthUser user) {
         boolean isStaff = AuthUtil.ROLE_STAFF.equals(user.role());
