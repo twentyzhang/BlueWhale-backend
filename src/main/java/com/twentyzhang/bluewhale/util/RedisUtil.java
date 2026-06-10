@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 @Component
@@ -112,5 +113,21 @@ public class RedisUtil {
         if (!batch.isEmpty()) {
             stringRedisTemplate.delete(batch);
         }
+    }
+
+    // ---------- ZSet 操作（推荐相似度缓存） ----------
+
+    /** 向有序集合添加成员（member → score）。 */
+    public Boolean zAdd(String key, String member, double score) {
+        return stringRedisTemplate.opsForZSet().add(key, member, score);
+    }
+
+    /**
+     * 按 score 降序取区间成员（含两端），用于查 Top-N 相似商品。
+     * key 不存在或为空时返回空列表（保留 score 降序）。
+     */
+    public List<String> zRevRange(String key, long start, long end) {
+        Set<String> members = stringRedisTemplate.opsForZSet().reverseRange(key, start, end);
+        return members == null ? new ArrayList<>() : new ArrayList<>(members);
     }
 }

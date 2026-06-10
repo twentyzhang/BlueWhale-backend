@@ -37,7 +37,8 @@ public class SecurityConfig {
                         "/api/stores/*/products",   // 店内商品列表
                         "/api/products",            // 商品搜索
                         "/api/products/*",          // 商品详情
-                        "/api/products/*/reviews"   // 商品评论列表
+                        "/api/products/*/reviews",  // 商品评论列表
+                        "/api/products/*/recommendations" // 商品相关推荐（任务8，开放）
                 ).permitAll()
                 .requestMatchers("/ws/**").permitAll()   // 握手放行，真正鉴权在 STOMP CONNECT 帧
                 .anyRequest().authenticated()

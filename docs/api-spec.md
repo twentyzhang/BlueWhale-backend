@@ -1370,6 +1370,61 @@ destination:/app/chat.staff.send
 
 ---
 
+## 模块十二：推荐（item-based CF）
+
+> 离线预计算的相似度，线上查表。返回体复用商品摘要结构（`id` / `name` / `price` / `stock` / `imageUrl` / `categoryName`）。
+
+### GET /api/products/{productId}/recommendations — 商品相关推荐
+
+- **权限**：无需登录（开放，同商品浏览）。
+- **Query**：`limit` 相似商品数量，默认 10，上限 50。
+- **行为**：返回该商品的相似商品；相似数据不足时按「同类目热销 → 全站热销」兜底补足，不排除已购。
+
+请求：
+```
+GET /api/products/10/recommendations?limit=5
+```
+响应：
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": [
+    { "id": 20, "name": "手机壳", "price": 19.90, "stock": 100, "imageUrl": "http://...", "categoryName": "数码配件" }
+  ]
+}
+```
+
+### GET /api/recommendations — 个性化猜你喜欢
+
+- **权限**：需要登录（userId 取自 JWT）。
+- **Query**：`limit` 默认 10，上限 50。
+- **行为**：聚合当前用户已购商品的相似集（按 `兴趣权重 × 相似度` 累加），**排除已购**；新用户或聚合不足时用全站热销兜底。
+
+请求：
+```
+GET /api/recommendations?limit=10
+Authorization: Bearer <token>
+```
+响应结构同上（商品摘要数组）。
+
+### POST /api/admin/recommendations/rebuild — 手动触发相似度重建
+
+- **权限**：仅 Admin。
+- **行为**：同步全量重建 `product_similarity` 并清相似度缓存，返回写入的相似度行数。供本地调试 / 演示，免等每日 03:00 定时任务。
+
+请求：
+```
+POST /api/admin/recommendations/rebuild
+Authorization: Bearer <admin-token>
+```
+响应：
+```json
+{ "code": 200, "message": "success", "data": 128 }
+```
+
+---
+
 ## 接口汇总
 
 | 模块 | 方法 | 路径 | 权限 |
@@ -1436,3 +1491,6 @@ destination:/app/chat.staff.send
 | | SUBSCRIBE | `/user/queue/errors` | 买家/客服 |
 | | SEND | `/app/chat.customer.send` | 仅 Customer |
 | | SEND | `/app/chat.staff.send` | 仅 Staff |
+| **推荐** | GET | `/api/products/{productId}/recommendations` | 无需登录 |
+| | GET | `/api/recommendations` | 需要登录 |
+| | POST | `/api/admin/recommendations/rebuild` | Admin |
