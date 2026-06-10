@@ -15,7 +15,6 @@ import com.twentyzhang.bluewhale.service.ProductCategoryService;
 import com.twentyzhang.bluewhale.util.AuthUtil;
 import com.twentyzhang.bluewhale.util.CacheKeys;
 import com.twentyzhang.bluewhale.util.CacheUtil;
-import com.twentyzhang.bluewhale.util.RedisUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -31,7 +30,6 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
 
     private final ProductMapper productMapper;
     private final CacheUtil cacheUtil;
-    private final RedisUtil redisUtil;
 
     // ── 1. getCategoryTree ────────────────────────────────────────────────────
     @Override
@@ -101,7 +99,7 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
                 .parentId(request.getParentId())
                 .build();
         save(category);
-        redisUtil.delete(CacheKeys.CATEGORY_TREE); // 分类变更，失效分类树缓存
+        cacheUtil.invalidate(CacheKeys.CATEGORY_TREE); // 分类变更，失效分类树缓存（L1+L2）
         return category.getId();
     }
 
@@ -129,6 +127,6 @@ public class ProductCategoryServiceImpl extends ServiceImpl<ProductCategoryMappe
         }
 
         removeById(categoryId);
-        redisUtil.delete(CacheKeys.CATEGORY_TREE); // 分类变更，失效分类树缓存
+        cacheUtil.invalidate(CacheKeys.CATEGORY_TREE); // 分类变更，失效分类树缓存（L1+L2）
     }
 }

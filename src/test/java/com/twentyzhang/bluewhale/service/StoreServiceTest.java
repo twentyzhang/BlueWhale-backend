@@ -15,7 +15,6 @@ import com.twentyzhang.bluewhale.service.impl.StoreServiceImpl;
 import com.twentyzhang.bluewhale.util.AuthUtil;
 import com.twentyzhang.bluewhale.util.CacheKeys;
 import com.twentyzhang.bluewhale.util.CacheUtil;
-import com.twentyzhang.bluewhale.util.RedisUtil;
 import com.fasterxml.jackson.core.type.TypeReference;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
@@ -53,9 +52,6 @@ class StoreServiceTest extends BaseServiceTest {
 
     @Mock
     private CacheUtil cacheUtil;
-
-    @Mock
-    private RedisUtil redisUtil;
 
     @InjectMocks
     private StoreServiceImpl storeService;
@@ -272,8 +268,8 @@ class StoreServiceTest extends BaseServiceTest {
             assertEquals("old.png", store.getLogo()); // 未修改
             verify(storeMapper).updateById(store);
             // 更新后失效该商店详情 + 列表缓存
-            verify(redisUtil).delete(CacheKeys.storeDetail(1L));
-            verify(redisUtil).deleteByPrefix(CacheKeys.STORE_LIST_PREFIX);
+            verify(cacheUtil).invalidate(CacheKeys.storeDetail(1L));
+            verify(cacheUtil).invalidateByPrefix(CacheKeys.STORE_LIST_PREFIX);
         }
 
         @Test

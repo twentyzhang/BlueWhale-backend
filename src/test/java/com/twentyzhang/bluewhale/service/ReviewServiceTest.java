@@ -21,7 +21,6 @@ import com.twentyzhang.bluewhale.service.impl.ReviewServiceImpl;
 import com.twentyzhang.bluewhale.util.AuthUtil;
 import com.twentyzhang.bluewhale.util.CacheKeys;
 import com.twentyzhang.bluewhale.util.CacheUtil;
-import com.twentyzhang.bluewhale.util.RedisUtil;
 import com.fasterxml.jackson.core.type.TypeReference;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,7 +50,6 @@ class ReviewServiceTest extends BaseServiceTest {
     // UserMapper 虽不在题目列表中，但 getProductReviews 需用它批量查昵称，否则正常用例 NPE
     @Mock private UserMapper      userMapper;
     @Mock private CacheUtil       cacheUtil;
-    @Mock private RedisUtil       redisUtil;
 
     @InjectMocks
     private ReviewServiceImpl reviewService;

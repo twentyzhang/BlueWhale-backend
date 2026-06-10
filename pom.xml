@@ -113,6 +113,12 @@
 			<artifactId>commons-pool2</artifactId>
 		</dependency>
 
+		<!-- Caffeine：本地 L1 缓存（多级缓存 L1，版本由 Spring Boot BOM 管理） -->
+		<dependency>
+			<groupId>com.github.ben-manes.caffeine</groupId>
+			<artifactId>caffeine</artifactId>
+		</dependency>
+
 		<!-- Lombok -->
 		<dependency>
 			<groupId>org.projectlombok</groupId>

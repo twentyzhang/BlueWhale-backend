@@ -29,7 +29,6 @@ import com.twentyzhang.bluewhale.service.ProductService;
 import com.twentyzhang.bluewhale.util.AuthUtil;
 import com.twentyzhang.bluewhale.util.CacheKeys;
 import com.twentyzhang.bluewhale.util.CacheUtil;
-import com.twentyzhang.bluewhale.util.RedisUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -53,7 +52,6 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
     private final OrderItemMapper orderItemMapper;
     private final OrderMapper orderMapper;
     private final CacheUtil cacheUtil;
-    private final RedisUtil redisUtil;
 
     private static final List<String> ACTIVE_ORDER_STATUSES =
             List.of("PENDING_PAYMENT", "PAID", "SHIPPED");
@@ -185,7 +183,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
         if (request.getImageUrl()   != null) product.setImageUrl(request.getImageUrl());
 
         updateById(product);
-        redisUtil.delete(CacheKeys.productDetail(productId)); // 商品变更，失效商品详情缓存
+        cacheUtil.invalidate(CacheKeys.productDetail(productId)); // 商品变更，失效商品详情缓存
     }
 
     // ── 6. deleteProduct ─────────────────────────────────────────────────────
@@ -222,7 +220,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
         }
 
         removeById(productId);
-        redisUtil.delete(CacheKeys.productDetail(productId)); // 商品删除，失效商品详情缓存
+        cacheUtil.invalidate(CacheKeys.productDetail(productId)); // 商品删除，失效商品详情缓存
     }
 
     // ── 7. updateStock ────────────────────────────────────────────────────────
@@ -255,7 +253,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
 
             int rows = baseMapper.updateStockTo(productId, newStock, product.getVersion());
             if (rows > 0) {
-                redisUtil.delete(CacheKeys.productDetail(productId)); // 库存变更，失效商品详情缓存
+                cacheUtil.invalidate(CacheKeys.productDetail(productId)); // 库存变更，失效商品详情缓存
                 return UpdateStockResponse.builder().currentStock(newStock).build();
             }
             // rows == 0：version 被并发修改，重新读取后重试

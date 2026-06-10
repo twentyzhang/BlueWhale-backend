@@ -12,7 +12,6 @@ import com.twentyzhang.bluewhale.service.impl.ProductCategoryServiceImpl;
 import com.twentyzhang.bluewhale.util.AuthUtil;
 import com.twentyzhang.bluewhale.util.CacheKeys;
 import com.twentyzhang.bluewhale.util.CacheUtil;
-import com.twentyzhang.bluewhale.util.RedisUtil;
 import com.fasterxml.jackson.core.type.TypeReference;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,9 +43,6 @@ class ProductCategoryServiceTest extends BaseServiceTest {
 
     @Mock
     private CacheUtil cacheUtil;
-
-    @Mock
-    private RedisUtil redisUtil;
 
     @InjectMocks
     private ProductCategoryServiceImpl categoryService;
@@ -157,7 +153,7 @@ class ProductCategoryServiceTest extends BaseServiceTest {
             verify(productCategoryMapper).insert((ProductCategory) captor.capture());
             assertEquals("食品", captor.getValue().getName());
             assertNull(captor.getValue().getParentId());
-            verify(redisUtil).delete(CacheKeys.CATEGORY_TREE); // 创建后失效分类树缓存
+            verify(cacheUtil).invalidate(CacheKeys.CATEGORY_TREE); // 创建后失效分类树缓存
         }
 
         @Test
@@ -256,7 +252,7 @@ class ProductCategoryServiceTest extends BaseServiceTest {
 
             assertDoesNotThrow(() -> categoryService.deleteCategory(5L));
             verify(productCategoryMapper).deleteById((Serializable) 5L);
-            verify(redisUtil).delete(CacheKeys.CATEGORY_TREE); // 删除后失效分类树缓存
+            verify(cacheUtil).invalidate(CacheKeys.CATEGORY_TREE); // 删除后失效分类树缓存
         }
 
         @Test

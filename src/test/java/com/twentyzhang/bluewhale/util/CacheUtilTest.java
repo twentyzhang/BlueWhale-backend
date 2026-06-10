@@ -15,7 +15,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -110,8 +115,7 @@ class CacheUtilTest {
         ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
         verify(redisUtil).setWithExpire(eq("page"), json.capture(), anyLong(), any());
 
-        // 模拟第二次命中：用上次写入的 JSON 反序列化
-        when(redisUtil.get("page")).thenReturn(json.getValue());
+        // 第二次命中（首次 load 已回填 L1，直接命中本地缓存，不再回源、不再读 Redis）
         Page<Dto> hit = cacheUtil.getOrLoad("page", 600, 0,
                 () -> { throw new AssertionError("不应回源"); }, new TypeReference<Page<Dto>>() {});
 
@@ -119,5 +123,52 @@ class CacheUtilTest {
         assertEquals(2, hit.getCurrent());
         assertEquals(1, hit.getRecords().size());
         assertEquals("甲", hit.getRecords().get(0).name());
+    }
+
+    @Test
+    @DisplayName("single-flight：并发未命中同一 key，loader 仅执行一次")
+    void singleFlight_concurrentMissesLoadOnce() throws Exception {
+        when(redisUtil.get("hot")).thenReturn(null);
+        AtomicInteger loaderCalls = new AtomicInteger();
+        int threads = 12;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<Dto>> futures = new ArrayList<>();
+        for (int i = 0; i < threads; i++) {
+            futures.add(pool.submit(() -> {
+                start.await();
+                return cacheUtil.getOrLoad("hot", 300, 0, () -> {
+                    loaderCalls.incrementAndGet();
+                    try { Thread.sleep(50); } catch (InterruptedException ignored) { }
+                    return new Dto(1L, "A", null);
+                }, Dto.class);
+            }));
+        }
+        start.countDown();   // 12 线程同时冲
+        for (Future<Dto> f : futures) {
+            assertEquals(new Dto(1L, "A", null), f.get());
+        }
+        pool.shutdown();
+        assertEquals(1, loaderCalls.get(), "single-flight 应只回源一次");
+    }
+
+    @Test
+    @DisplayName("invalidate：清 L1+L2，失效后下次读重新回源")
+    void invalidate_clearsBothLayersAndReloads() {
+        when(redisUtil.get("k")).thenReturn(null);   // Redis 始终未命中
+        AtomicInteger loaderCalls = new AtomicInteger();
+
+        // 第一次：未命中 → 回源(count=1) → 写两级；若不失效，第二次会命中 L1
+        cacheUtil.getOrLoad("k", 300, 0,
+                () -> { loaderCalls.incrementAndGet(); return new Dto(1L, "A", null); }, Dto.class);
+
+        cacheUtil.invalidate("k");
+        verify(redisUtil).delete("k");
+
+        // 第二次：L1 已清、Redis 仍未命中 → 再次回源(count=2)
+        cacheUtil.getOrLoad("k", 300, 0,
+                () -> { loaderCalls.incrementAndGet(); return new Dto(1L, "A", null); }, Dto.class);
+
+        assertEquals(2, loaderCalls.get(), "失效后应再次回源");
     }
 }

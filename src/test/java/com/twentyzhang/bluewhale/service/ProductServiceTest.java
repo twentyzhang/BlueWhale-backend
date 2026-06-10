@@ -13,7 +13,6 @@ import com.twentyzhang.bluewhale.service.impl.ProductServiceImpl;
 import com.twentyzhang.bluewhale.util.AuthUtil;
 import com.twentyzhang.bluewhale.util.CacheKeys;
 import com.twentyzhang.bluewhale.util.CacheUtil;
-import com.twentyzhang.bluewhale.util.RedisUtil;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -44,7 +43,6 @@ class ProductServiceTest extends BaseServiceTest {
     @Mock private OrderItemMapper orderItemMapper;
     @Mock private OrderMapper orderMapper;
     @Mock private CacheUtil cacheUtil;
-    @Mock private RedisUtil redisUtil;
 
     @InjectMocks
     private ProductServiceImpl productService;

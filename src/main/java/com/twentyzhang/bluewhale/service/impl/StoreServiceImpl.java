@@ -22,7 +22,6 @@ import com.twentyzhang.bluewhale.service.StoreService;
 import com.twentyzhang.bluewhale.util.AuthUtil;
 import com.twentyzhang.bluewhale.util.CacheKeys;
 import com.twentyzhang.bluewhale.util.CacheUtil;
-import com.twentyzhang.bluewhale.util.RedisUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,7 +33,6 @@ public class StoreServiceImpl extends ServiceImpl<StoreMapper, Store> implements
     private final ProductMapper productMapper;
     private final UserMapper userMapper;
     private final CacheUtil cacheUtil;
-    private final RedisUtil redisUtil;
 
     // ── 1. listStores ────────────────────────────────────────────────────────
     @Override
@@ -88,7 +86,7 @@ public class StoreServiceImpl extends ServiceImpl<StoreMapper, Store> implements
         staff.setStoreId(store.getId());
         userMapper.updateById(staff);
 
-        redisUtil.deleteByPrefix(CacheKeys.STORE_LIST_PREFIX); // 新增商店，失效商店列表缓存
+        cacheUtil.invalidateByPrefix(CacheKeys.STORE_LIST_PREFIX); // 新增商店，失效商店列表缓存（L1+L2）
 
         return CreateStoreResponse.builder()
                 .storeId(store.getId())
@@ -112,9 +110,9 @@ public class StoreServiceImpl extends ServiceImpl<StoreMapper, Store> implements
         }
         updateById(store);
 
-        // 商店信息变更，失效该商店详情 + 商店列表缓存
-        redisUtil.delete(CacheKeys.storeDetail(storeId));
-        redisUtil.deleteByPrefix(CacheKeys.STORE_LIST_PREFIX);
+        // 商店信息变更，失效该商店详情 + 商店列表缓存（L1+L2）
+        cacheUtil.invalidate(CacheKeys.storeDetail(storeId));
+        cacheUtil.invalidateByPrefix(CacheKeys.STORE_LIST_PREFIX);
     }
 
     // ── 5. listAllStoresForAdmin ─────────────────────────────────────────────
