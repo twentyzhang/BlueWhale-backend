@@ -568,6 +568,49 @@ client.publish({
 
 ---
 
+### 模块十三：支付（模拟）
+
+> ⚠️ 任务 D 破坏性变更：支付改为**异步回路 + 轮询**。`POST /api/orders/{orderId}/pay` 不再直接把订单置为已支付，而是创建一笔支付流水并返回支付链接；前端需引导用户到「收银台」付款，再轮询查单确认结果。
+
+| 接口 | 方法/路径 | 权限 | 入参 | 返回 | 说明 |
+|---|---|---|---|---|---|
+| 发起支付 | POST `/api/orders/{orderId}/pay` | 仅 Customer（本人订单） | 无 body | `{tradeNo, payUrl, amount}` | 订单需为 `PENDING_PAYMENT`；返回交易号与收银台链接 |
+| 模拟收银台·成功 | POST `/api/mock-pay/{tradeNo}/success` | 无需登录 | 无 body | `null` | 扮演「用户付款成功」；**立即返回**，后端 ~1.5s 后异步回调 |
+| 模拟收银台·失败 | POST `/api/mock-pay/{tradeNo}/fail` | 无需登录 | 无 body | `null` | 扮演「用户取消/付款失败」 |
+| 查单（轮询） | GET `/api/payments/{tradeNo}` | 需要登录（本人订单） | path: `tradeNo` | `{tradeNo, status, orderId, amount, paidAt}` | 轮询直到 `status` 为终态 |
+
+**标准调用时序（前端务必照此实现）：**
+
+```
+1. POST /api/orders/{orderId}/pay            → 拿 { tradeNo, payUrl }
+2. 引导用户到收银台（演示阶段：POST {payUrl}/success，即 /api/mock-pay/{tradeNo}/success）
+3. 轮询 GET /api/payments/{tradeNo}          → status: PENDING → SUCCESS / FAILED
+4. status=SUCCESS：提示支付成功，刷新订单详情（订单已变 PAID）
+   status=FAILED ：提示支付失败，订单仍为 PENDING_PAYMENT，可重新发起支付
+```
+
+**请求/响应示例：**
+
+```jsonc
+// 1) POST /api/orders/1001/pay  →
+{ "code": 200, "message": "success",
+  "data": { "tradeNo": "3f2a9c...e1", "payUrl": "/api/mock-pay/3f2a9c...e1", "amount": 9.90 } }
+
+// 3) GET /api/payments/3f2a9c...e1  →
+{ "code": 200, "message": "success",
+  "data": { "tradeNo": "3f2a9c...e1", "status": "SUCCESS", "orderId": 1001, "amount": 9.90,
+            "paidAt": "2026-06-15T14:00:00" } }
+```
+
+**前端使用要点：**
+
+- **轮询节奏**：回调默认延迟 ~1.5s，建议每 ~1s 轮询一次、最多 ~10s；超时仍 `PENDING` 则提示「支付确认中，请稍后在订单列表查看」。
+- **不要假设 `/pay` 即支付成功**：必须经收银台 + 查单确认。
+- **真接支付宝时**：`/api/mock-pay/**` 这两个端点会删除（由支付宝收银台替代），`/pay` 发起、`/payments/{tradeNo}` 查单、回调验签的形态不变——前端只需把「跳收银台」从调 mock 端点换成跳支付宝返回的 `payUrl`。
+- **失败可重试**：`FAILED` 后订单仍待支付，可再次 `POST /pay` 生成新交易号重走流程。
+
+---
+
 ## 5. 枚举值说明
 
 | 枚举 | 取值 | 含义 |
@@ -588,6 +631,9 @@ client.publish({
 | | `EXPIRED` | 已过期 |
 | 库存操作 `type` | `IN` | 入库（增加库存） |
 | | `OUT` | 出库（减少库存） |
+| 支付状态 `status` | `PENDING` | 处理中（继续轮询） |
+| | `SUCCESS` | 支付成功（订单已置 PAID） |
+| | `FAILED` | 支付失败（订单仍待支付，可重发起） |
 
 **订单状态流转：**
 ```
