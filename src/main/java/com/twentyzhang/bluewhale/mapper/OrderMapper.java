@@ -5,6 +5,7 @@ import com.twentyzhang.bluewhale.entity.Order;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -96,4 +97,15 @@ public interface OrderMapper extends BaseMapper<Order> {
             @Param("startDate")  LocalDate startDate,
             @Param("endDate")    LocalDate endDate
     );
+
+    /**
+     * 原子置订单为已支付：仅待支付订单可置 PAID，保证回调幂等与并发安全。
+     * 返回 1=成功，0=订单已非 PENDING_PAYMENT（已取消/已支付，回调侧记日志不报错）。
+     */
+    @Update("""
+            UPDATE orders
+            SET status = 'PAID', paid_at = #{paidAt}, updated_at = NOW()
+            WHERE id = #{orderId} AND status = 'PENDING_PAYMENT' AND deleted = 0
+            """)
+    int markPaid(@Param("orderId") Long orderId, @Param("paidAt") java.time.LocalDateTime paidAt);
 }

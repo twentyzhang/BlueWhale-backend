@@ -16,7 +16,6 @@ import com.twentyzhang.bluewhale.dto.OrderAddressResponse;
 import com.twentyzhang.bluewhale.dto.OrderDetailResponse;
 import com.twentyzhang.bluewhale.dto.OrderItemDetailResponse;
 import com.twentyzhang.bluewhale.dto.OrderListItemResponse;
-import com.twentyzhang.bluewhale.dto.PayOrderResponse;
 import com.twentyzhang.bluewhale.dto.RefundRequest;
 import com.twentyzhang.bluewhale.dto.RefundResponse;
 import com.twentyzhang.bluewhale.dto.ShipOrderRequest;
@@ -299,28 +298,6 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                         .detail(addrDetail)
                         .build())
                 .items(itemResponses)
-                .build();
-    }
-
-    // ── payOrder ──────────────────────────────────────────────────────────────
-
-    @Override
-    public PayOrderResponse payOrder(Long userId, Long orderId) {
-        Order order = requireCustomerOrder(userId, orderId);
-
-        if (!"PENDING_PAYMENT".equals(order.getStatus())) {
-            throw new BusinessException(
-                    "订单无法支付，当前状态：" + order.getStatus() + "（需为 PENDING_PAYMENT）");
-        }
-
-        LocalDateTime now = LocalDateTime.now();
-        order.setStatus("PAID");
-        order.setPaidAt(now);
-        updateById(order);
-
-        return PayOrderResponse.builder()
-                .status("PAID")
-                .paidAt(now)
                 .build();
     }
 

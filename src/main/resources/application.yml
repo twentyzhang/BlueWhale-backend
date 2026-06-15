@@ -8,6 +8,13 @@ jwt:
   # access token 有效期（毫秒），默认 15 分钟（配合 refreshToken 轮换与即时撤销）
   expiration: ${JWT_EXPIRATION:900000}
 
+payment:
+  mock:
+    # 回调验签密钥（生产经环境变量注入，本地用默认值）
+    secret: ${PAYMENT_MOCK_SECRET:mock-payment-hmac-secret-key-bluewhale}
+    # 模拟收银台触发后，异步回调延迟毫秒（模拟支付宝回调晚到）
+    callback-delay-ms: ${PAYMENT_CALLBACK_DELAY_MS:1500}
+
 spring:
   application:
     name: bluewhale
@@ -26,7 +33,7 @@ spring:
 
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3305/bluewhale?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
+    url: jdbc:mysql://localhost:3305/bluewhale?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
     password: 123456
 

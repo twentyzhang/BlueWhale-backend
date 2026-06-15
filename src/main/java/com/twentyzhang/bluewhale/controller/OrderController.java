@@ -11,10 +11,11 @@ import com.twentyzhang.bluewhale.dto.CreateOrderRequest;
 import com.twentyzhang.bluewhale.dto.CreateOrderResponse;
 import com.twentyzhang.bluewhale.dto.OrderDetailResponse;
 import com.twentyzhang.bluewhale.dto.OrderListItemResponse;
-import com.twentyzhang.bluewhale.dto.PayOrderResponse;
 import com.twentyzhang.bluewhale.dto.RefundRequest;
 import com.twentyzhang.bluewhale.dto.RefundResponse;
+import com.twentyzhang.bluewhale.dto.payment.InitiatePaymentResponse;
 import com.twentyzhang.bluewhale.service.OrderService;
+import com.twentyzhang.bluewhale.service.PaymentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -32,6 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class OrderController {
 
     private final OrderService orderService;
+    private final PaymentService paymentService;
 
     // 需要鉴权 仅 Customer
     @PostMapping
@@ -61,10 +63,10 @@ public class OrderController {
         return Result.success(orderService.getOrderDetail(user.userId(), user.role(), orderId));
     }
 
-    // 需要鉴权 仅 Customer（本人订单）
+    // 需要鉴权 仅 Customer（本人订单）—— 发起支付（异步：返回 tradeNo + payUrl）
     @PostMapping("/{orderId}/pay")
-    public Result<PayOrderResponse> payOrder(@PathVariable Long orderId) {
-        return Result.success(orderService.payOrder(currentUser().userId(), orderId));
+    public Result<InitiatePaymentResponse> payOrder(@PathVariable Long orderId) {
+        return Result.success(paymentService.initiatePayment(currentUser().userId(), orderId));
     }
 
     // 需要鉴权 仅 Customer（本人订单）

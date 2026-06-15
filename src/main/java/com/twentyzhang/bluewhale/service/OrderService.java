@@ -10,7 +10,6 @@ import com.twentyzhang.bluewhale.dto.CreateOrderRequest;
 import com.twentyzhang.bluewhale.dto.CreateOrderResponse;
 import com.twentyzhang.bluewhale.dto.OrderDetailResponse;
 import com.twentyzhang.bluewhale.dto.OrderListItemResponse;
-import com.twentyzhang.bluewhale.dto.PayOrderResponse;
 import com.twentyzhang.bluewhale.dto.RefundRequest;
 import com.twentyzhang.bluewhale.dto.RefundResponse;
 import com.twentyzhang.bluewhale.dto.ShipOrderRequest;
@@ -49,13 +48,6 @@ public interface OrderService extends IService<Order> {
      * @param role          当前用户角色（CUSTOMER / STAFF / ADMIN）
      */
     OrderDetailResponse getOrderDetail(Long requestUserId, String role, Long orderId);
-
-    /**
-     * 模拟支付指定订单。校验订单属于当前用户且状态为 PENDING_PAYMENT。
-     * 成功后将订单状态更新为 PAID 并记录支付时间。
-     * 对应 POST /api/orders/{orderId}/pay
-     */
-    PayOrderResponse payOrder(Long userId, Long orderId);
 
     /**
      * 取消订单。

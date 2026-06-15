@@ -46,6 +46,8 @@ public class SecurityConfig {
                         "/api/products/*/recommendations" // 商品相关推荐（任务8，开放）
                 ).permitAll()
                 .requestMatchers("/ws/**").permitAll()   // 握手放行，真正鉴权在 STOMP CONNECT 帧
+                .requestMatchers("/api/payments/notify").permitAll()   // 支付回调 webhook（靠 HMAC 验签）
+                .requestMatchers("/api/mock-pay/**").permitAll()       // 模拟收银台（外部网关流量）
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

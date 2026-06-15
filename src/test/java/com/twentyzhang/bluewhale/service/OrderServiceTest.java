@@ -498,41 +498,6 @@ class OrderServiceTest extends BaseServiceTest {
         }
     }
 
-    // ── payOrder ──────────────────────────────────────────────────────────────
-
-    @Nested
-    @DisplayName("payOrder")
-    class PayOrderTests {
-
-        @Test
-        @DisplayName("正常支付，验证状态变更为 PAID 且 paidAt 被记录")
-        void success_statusAndPaidAt() {
-            mockAuthUser(1L, AuthUtil.ROLE_CUSTOMER, null);
-            when(orderMapper.selectById(1001L)).thenReturn(order(1001L, 1L, 100L, "PENDING_PAYMENT"));
-            when(orderMapper.updateById(anyOrder())).thenReturn(1);
-
-            PayOrderResponse resp = orderService.payOrder(1L, 1001L);
-
-            assertEquals("PAID", resp.getStatus());
-            assertNotNull(resp.getPaidAt());
-
-            ArgumentCaptor<Order> captor = ArgumentCaptor.forClass(Order.class);
-            verify(orderMapper).updateById((Order) captor.capture());
-            assertEquals("PAID", captor.getValue().getStatus());
-            assertNotNull(captor.getValue().getPaidAt());
-        }
-
-        @Test
-        @DisplayName("订单状态不为 PENDING_PAYMENT 时抛出 BusinessException")
-        void wrongStatus_throws() {
-            mockAuthUser(1L, AuthUtil.ROLE_CUSTOMER, null);
-            when(orderMapper.selectById(1001L)).thenReturn(order(1001L, 1L, 100L, "PAID"));
-
-            assertThrows(BusinessException.class, () -> orderService.payOrder(1L, 1001L));
-            verify(orderMapper, never()).updateById(anyOrder());
-        }
-    }
-
     // ── cancelOrder ───────────────────────────────────────────────────────────
 
     @Nested

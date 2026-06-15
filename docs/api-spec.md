@@ -1509,3 +1509,48 @@ Authorization: Bearer <admin-token>
 | **推荐** | GET | `/api/products/{productId}/recommendations` | 无需登录 |
 | | GET | `/api/recommendations` | 需要登录 |
 | | POST | `/api/admin/recommendations/rebuild` | Admin |
+| **支付（模拟）** | POST | `/api/orders/{orderId}/pay` | 仅 Customer（**破坏性变更**：返回 tradeNo+payUrl） |
+| | POST | `/api/mock-pay/{tradeNo}/success` | 无需登录（模拟收银台） |
+| | POST | `/api/mock-pay/{tradeNo}/fail` | 无需登录（模拟收银台） |
+| | POST | `/api/payments/notify` | 无需登录（webhook，HMAC 验签） |
+| | GET | `/api/payments/{tradeNo}` | 需要登录（查单，前端轮询） |
+
+---
+
+## 支付（模拟支付网关，任务 D）
+
+> 可插拔模拟网关，复刻第三方支付异步回路；未来替换真支付宝时，前端调用方式不变。
+
+### POST /api/orders/{orderId}/pay — 发起支付（**破坏性变更**）
+
+仅 Customer 本人订单（需 `PENDING_PAYMENT`）。不再直接置 PAID，而是建支付流水并返回支付链接，前端随后引导用户去 `payUrl`（模拟收银台）并轮询查单。
+
+请求：无 body。响应 `data`：
+
+```json
+{ "tradeNo": "3f2a...e1", "payUrl": "/api/mock-pay/3f2a...e1", "amount": 9.90 }
+```
+
+错误：订单不存在/非本人 → 404；订单非 `PENDING_PAYMENT` → 400。
+
+### POST /api/mock-pay/{tradeNo}/success | /fail — 模拟收银台（开放）
+
+扮演「用户在支付宝完成/取消付款」。立即返回，后端延迟 ~1.5s **异步**发起回调（模拟回调晚到）。无 body，响应 `data` 为 null。真接支付宝时此端点删除，改由支付宝调 `/api/payments/notify`。
+
+### POST /api/payments/notify — 支付回调 webhook（开放，HMAC 验签）
+
+外部网关回调入口（mock 由收银台异步触发；真支付宝直接调）。靠 HMAC 签名校验，验签失败/金额不符 → 400，未知交易 → 404；重复回调幂等。请求 `body`：
+
+```json
+{ "tradeNo": "3f2a...e1", "status": "SUCCESS", "amount": 9.90, "sign": "<hmac-sha256>" }
+```
+
+### GET /api/payments/{tradeNo} — 查单（需登录，前端轮询）
+
+仅订单归属用户可查（越权 → 403）。前端发起支付后轮询此接口直至终态。响应 `data`：
+
+```json
+{ "tradeNo": "3f2a...e1", "status": "SUCCESS", "orderId": 1001, "amount": 9.90, "paidAt": "2026-06-15T14:00:00" }
+```
+
+`status` 枚举：`PENDING`（处理中，继续轮询）/ `SUCCESS`（成功，订单已置 PAID）/ `FAILED`（失败，订单仍 PENDING_PAYMENT）。
