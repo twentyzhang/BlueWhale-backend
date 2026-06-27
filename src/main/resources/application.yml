@@ -35,6 +35,18 @@ search:
   semantic:
     default-top-k: 50
 
+rag:
+  qwen:
+    # 通义千问 key（与 embedding 共用 DASHSCOPE_API_KEY）
+    api-key: ${DASHSCOPE_API_KEY:}
+    base-url: ${QWEN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    model: ${QWEN_MODEL:qwen-plus}
+    temperature: 0.3
+  top-k: 6
+  context-size: 6
+  timeout-ms: 30000
+  emitter-timeout-ms: 60000
+
 spring:
   application:
     name: bluewhale

@@ -1516,6 +1516,7 @@ Authorization: Bearer <admin-token>
 | | GET | `/api/payments/{tradeNo}` | 需要登录（查单，前端轮询） |
 | **AI 语义搜索** | GET | `/api/products/semantic` | 无需登录（失败降级关键词搜索） |
 | | POST | `/api/admin/products/reindex` | Admin（全量重建索引） |
+| **AI 导购问答** | GET | `/api/products/qa` | 无需登录（SSE 流式，检索增强生成） |
 
 ---
 
@@ -1586,3 +1587,44 @@ Authorization: Bearer <admin-token>
 ### POST /api/admin/products/reindex — 全量重建索引（仅 Admin）
 
 给所有未删商品批量入队 `UPSERT` 事件，交后台中继异步同步到 Qdrant，用于索引初始化 / 灾后重建。响应 `data` 为入队条数（int）。非 Admin → 403。
+
+---
+
+## 模块十五：AI 导购问答（RAG）
+
+> 在 AI-1 检索基础上叠加 LLM 流式生成。详见 `重要决策说明.md` #58、`实现说明.md`「AI 导购问答（RAG）」。
+
+### GET /api/products/qa — 导购问答（无需登录，SSE 流式）
+
+用自然语言提问，系统检索相关商品并由通义千问流式生成带推荐理由的回答。**响应是 `text/event-stream`（SSE），非普通 JSON**，前端用 `EventSource` 接收。
+
+| 参数 | 位置 | 必填 | 说明 |
+|---|---|---|---|
+| `q` | query | 是 | 问题文本（自然语言） |
+| `topK` | query | 否 | 检索条数上限，不传用服务端默认（6） |
+
+**SSE 事件**（按 `event:` 名分流）：
+
+| event | data | 时机 |
+|---|---|---|
+| `products` | 商品卡 JSON 数组（结构同 `ProductListItemResponse`） | 检索后最先推一次（空也推 `[]`） |
+| `answer` | 一段回答增量文本 | 生成中多次（前端追加成打字机） |
+| `done` | 空 | 生成正常结束，最后一次 |
+| `error` | 错误提示文案 | 生成/检索中断时替代 done |
+
+示例事件流：
+```
+event:products
+data:[{"id":5,"name":"蓝鲸气泡水 海盐柚子 330ml*6","price":29.90,"categoryName":"饮料",...}]
+
+event:answer
+data:推荐
+
+event:answer
+data:蓝鲸气泡水，29.9 元、无糖更解腻……
+
+event:done
+data:
+```
+
+> grounding：仅从检索到的候选商品推荐，不编造目录外商品；检索为空时 `products` 为 `[]` 且回一句「没找到相关商品」。生成侧 qwen 不可用时推 `error`（商品卡已先到）。

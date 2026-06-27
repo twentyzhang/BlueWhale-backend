@@ -79,6 +79,7 @@ src/
 - **数据持久化**：向量存于命名卷 `qdrant_storage`（挂到容器 `/qdrant/storage`）。`docker stop/start`、`docker rm` 重建均不丢数据；卷重新挂上即恢复。彻底清空：`docker volume rm qdrant_storage`（删卷后需重新 `reindex` 回填）。
 - 联调真实语义召回还需通义 DashScope 的 `DASHSCOPE_API_KEY`（仅 embedding 用；单测/集成测试用桩，不需 key）。阿里百炼 workspace key（`sk-ws-…`）在公网 DashScope 端点即可跑 `text-embedding-v3`，只设 `DASHSCOPE_API_KEY` 即可，无需改 URL。
 - **怎么测语义搜索 / 真实联调结果**：见 `docs/实现说明.md`「AI 语义搜索 → 本地联调与验证」一节（启动→reindex→`GET /api/products/semantic?q=...` 步骤 + 验证结果）。
+- **AI 导购问答（RAG，模块十五）**：`GET /api/products/qa?q=...`（SSE 流式）。生成侧通义千问 `qwen-plus`，**复用同一个 `DASHSCOPE_API_KEY`**（与 embedding 共用百炼账号，无需额外 key）；`ChatCompletionClient` 抽象，切 DeepSeek 仅改 `rag.qwen.base-url`/`model`/`api-key` 配置。浏览器用 `EventSource` 测；事件 `products`→`answer`*→`done`/`error`。
 
 ## Common Commands
 

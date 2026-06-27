@@ -2,7 +2,7 @@
 
 > 本文档面向前端开发，描述后端已实现接口的调用方式、鉴权流程、错误处理、枚举值与本地启动方法。
 > 接口的完整字段定义以 [`api-spec.md`](./api-spec.md) 为准，本文档侧重「前端怎么用」。
-> 最后更新：2026-06-27（AI-1 语义搜索：新增 GET /api/products/semantic，失败降级关键词搜索）。
+> 最后更新：2026-06-27（AI-2 导购问答：新增 GET /api/products/qa，SSE 流式检索增强生成）。
 
 ---
 
@@ -32,7 +32,28 @@
 
 ---
 
-> 最新更新（AI-1 语义搜索）含 **0 处破坏性变更** 和 **1 个新能力**。
+> 最新更新（AI-2 导购问答）含 **0 处破坏性变更** 和 **1 个新能力**。
+
+### 🆕 新增能力（AI-2 导购问答 RAG）
+
+| # | 新增 | 接口 | 说明 |
+|---|---|---|---|
+| 11 | **AI 导购问答（SSE 流式）** | `GET /api/products/qa?q=...&topK=` | 自然语言导购，**无需登录**；用 `EventSource` 接收 SSE。事件：`products`（检索到的商品卡数组，先到，立即渲染）→ `answer`（回答增量文本，多次，做打字机追加）→ `done`（结束，关闭连接）；出错为 `error`（提示文案）。检索为空时 `products` 为 `[]` + 一句提示。 |
+
+**前端用法示例：**
+```js
+const es = new EventSource(`/api/products/qa?q=${encodeURIComponent(q)}`);
+es.addEventListener('products', e => renderCards(JSON.parse(e.data)));
+es.addEventListener('answer',  e => appendText(e.data));
+es.addEventListener('done',    () => es.close());
+es.addEventListener('error',   e => { showTip(e.data); es.close(); });
+```
+
+> 与语义搜索 `GET /api/products/semantic` 的区别：后者只返回商品列表；本接口在检索基础上额外让 LLM 流式生成「推荐话术」。
+
+---
+
+> 历史更新（AI-1 语义搜索）含 **0 处破坏性变更** 和 **1 个新能力**。
 
 ### 🆕 新增能力（AI-1 语义搜索）
 
