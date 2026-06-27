@@ -1514,6 +1514,8 @@ Authorization: Bearer <admin-token>
 | | POST | `/api/mock-pay/{tradeNo}/fail` | 无需登录（模拟收银台） |
 | | POST | `/api/payments/notify` | 无需登录（webhook，HMAC 验签） |
 | | GET | `/api/payments/{tradeNo}` | 需要登录（查单，前端轮询） |
+| **AI 语义搜索** | GET | `/api/products/semantic` | 无需登录（失败降级关键词搜索） |
+| | POST | `/api/admin/products/reindex` | Admin（全量重建索引） |
 
 ---
 
@@ -1554,3 +1556,33 @@ Authorization: Bearer <admin-token>
 ```
 
 `status` 枚举：`PENDING`（处理中，继续轮询）/ `SUCCESS`（成功，订单已置 PAID）/ `FAILED`（失败，订单仍 PENDING_PAYMENT）。
+
+---
+
+## 模块十四：AI 语义搜索
+
+> 独立于关键词搜索 `GET /api/products` 的 AI 语义检索链路（outbox 同步 + Qdrant 向量库 + 通义 embedding）。详见 `重要决策说明.md` #57、`实现说明.md`「AI 语义搜索」。
+
+### GET /api/products/semantic — 语义搜索（无需登录）
+
+按自然语言语义检索商品，支持分类/价格过滤下推 Qdrant；embedding 或向量库不可用时**自动降级**为关键词搜索（对前端透明，结构不变）。
+
+| 参数 | 位置 | 必填 | 说明 |
+|---|---|---|---|
+| `q` | query | 是 | 查询文本（自然语言） |
+| `categoryId` | query | 否 | 限定分类 |
+| `minPrice` | query | 否 | 价格下限 |
+| `maxPrice` | query | 否 | 价格上限 |
+| `topK` | query | 否 | 返回条数上限，不传用服务端默认（50） |
+
+响应 `data` 为商品摘要数组（结构同商品列表项 `ProductListItemResponse`，按相关性降序）：
+
+```json
+[
+  { "id": 101, "name": "降噪蓝牙耳机", "price": 299.00, "stock": 50, "imageUrl": "...", "categoryName": "数码" }
+]
+```
+
+### POST /api/admin/products/reindex — 全量重建索引（仅 Admin）
+
+给所有未删商品批量入队 `UPSERT` 事件，交后台中继异步同步到 Qdrant，用于索引初始化 / 灾后重建。响应 `data` 为入队条数（int）。非 Admin → 403。

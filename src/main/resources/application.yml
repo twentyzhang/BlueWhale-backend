@@ -15,6 +15,26 @@ payment:
     # 模拟收银台触发后，异步回调延迟毫秒（模拟支付宝回调晚到）
     callback-delay-ms: ${PAYMENT_CALLBACK_DELAY_MS:1500}
 
+search:
+  qdrant:
+    url: ${QDRANT_URL:http://localhost:6333}
+    api-key: ${QDRANT_API_KEY:}
+    collection: ${QDRANT_COLLECTION:products}
+    vector-size: 1024
+    distance: Cosine
+  tongyi:
+    # 通义 DashScope embedding API key（生产经环境变量注入）
+    api-key: ${DASHSCOPE_API_KEY:}
+    embedding-url: ${TONGYI_EMBEDDING_URL:https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding}
+    embedding-model: text-embedding-v3
+    embedding-dimension: 1024
+  outbox:
+    poll-batch-size: 50
+    poll-delay-ms: 5000
+    max-retry: 5
+  semantic:
+    default-top-k: 50
+
 spring:
   application:
     name: bluewhale

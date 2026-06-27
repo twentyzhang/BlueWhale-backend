@@ -43,6 +43,7 @@ class ProductServiceTest extends BaseServiceTest {
     @Mock private OrderItemMapper orderItemMapper;
     @Mock private OrderMapper orderMapper;
     @Mock private CacheUtil cacheUtil;
+    @Mock private IndexOutboxMapper indexOutboxMapper;
 
     @InjectMocks
     private ProductServiceImpl productService;
@@ -503,5 +504,49 @@ class ProductServiceTest extends BaseServiceTest {
         p.setRecords(records);
         p.setTotal(total);
         return p;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // outbox 入队（AI 语义搜索）
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("outbox 入队")
+    class OutboxEnqueue {
+
+        @Test
+        @DisplayName("createProduct 入队 UPSERT 事件")
+        void create_enqueuesUpsert() {
+            mockAuthUser(1L, AuthUtil.ROLE_STAFF, 100L);
+            when(productCategoryMapper.selectById(5L))
+                    .thenReturn(category(5L, "数码"));
+            CreateProductRequest req = new CreateProductRequest();
+            req.setName("新品");
+            req.setPrice(new BigDecimal("9.90"));
+            req.setStock(10);
+            req.setCategoryId(5L);
+
+            productService.createProduct(100L, req);
+
+            ArgumentCaptor<IndexOutbox> cap = ArgumentCaptor.forClass(IndexOutbox.class);
+            verify(indexOutboxMapper).insert(cap.capture());
+            assertEquals("UPSERT", cap.getValue().getOp());
+        }
+
+        @Test
+        @DisplayName("deleteProduct 入队 DELETE 事件")
+        void delete_enqueuesDelete() {
+            mockAuthUser(1L, AuthUtil.ROLE_STAFF, 100L);
+            when(productMapper.selectById(1001L)).thenReturn(
+                    Product.builder().id(1001L).storeId(100L).name("x")
+                            .price(new BigDecimal("1")).stock(1).categoryId(5L).build());
+            when(orderItemMapper.selectList(any())).thenReturn(List.of());
+
+            productService.deleteProduct(100L, 1001L);
+
+            ArgumentCaptor<IndexOutbox> cap = ArgumentCaptor.forClass(IndexOutbox.class);
+            verify(indexOutboxMapper).insert(cap.capture());
+            assertEquals("DELETE", cap.getValue().getOp());
+        }
     }
 }

@@ -43,7 +43,8 @@ public class SecurityConfig {
                         "/api/products",            // 商品搜索
                         "/api/products/*",          // 商品详情
                         "/api/products/*/reviews",  // 商品评论列表
-                        "/api/products/*/recommendations" // 商品相关推荐（任务8，开放）
+                        "/api/products/*/recommendations", // 商品相关推荐（任务8，开放）
+                        "/api/products/semantic"           // AI 语义搜索（开放）
                 ).permitAll()
                 .requestMatchers("/ws/**").permitAll()   // 握手放行，真正鉴权在 STOMP CONNECT 帧
                 .requestMatchers("/api/payments/notify").permitAll()   // 支付回调 webhook（靠 HMAC 验签）

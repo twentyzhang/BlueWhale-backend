@@ -12,6 +12,7 @@ import com.twentyzhang.bluewhale.dto.ProductListItemResponse;
 import com.twentyzhang.bluewhale.dto.UpdateProductRequest;
 import com.twentyzhang.bluewhale.dto.UpdateStockRequest;
 import com.twentyzhang.bluewhale.dto.UpdateStockResponse;
+import com.twentyzhang.bluewhale.entity.IndexOutbox;
 import com.twentyzhang.bluewhale.entity.Order;
 import com.twentyzhang.bluewhale.entity.OrderItem;
 import com.twentyzhang.bluewhale.entity.Product;
@@ -19,6 +20,7 @@ import com.twentyzhang.bluewhale.entity.ProductCategory;
 import com.twentyzhang.bluewhale.entity.Review;
 import com.twentyzhang.bluewhale.entity.Store;
 import com.twentyzhang.bluewhale.exception.BusinessException;
+import com.twentyzhang.bluewhale.mapper.IndexOutboxMapper;
 import com.twentyzhang.bluewhale.mapper.OrderItemMapper;
 import com.twentyzhang.bluewhale.mapper.OrderMapper;
 import com.twentyzhang.bluewhale.mapper.ProductCategoryMapper;
@@ -52,6 +54,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
     private final OrderItemMapper orderItemMapper;
     private final OrderMapper orderMapper;
     private final CacheUtil cacheUtil;
+    private final IndexOutboxMapper indexOutboxMapper;
 
     private static final List<String> ACTIVE_ORDER_STATUSES =
             List.of("PENDING_PAYMENT", "PAID", "SHIPPED");
@@ -141,6 +144,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
 
     // ── 4. createProduct ─────────────────────────────────────────────────────
     @Override
+    @Transactional
     public Long createProduct(Long storeId, CreateProductRequest request) {
         AuthUtil.requireRole(AuthUtil.ROLE_STAFF);
         AuthUtil.requireStoreAccess(storeId);
@@ -158,11 +162,13 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
                 .imageUrl(request.getImageUrl())
                 .build();
         save(product);
+        enqueueIndexEvent(product.getId(), "UPSERT");
         return product.getId();
     }
 
     // ── 5. updateProduct ─────────────────────────────────────────────────────
     @Override
+    @Transactional
     public void updateProduct(Long storeId, Long productId, UpdateProductRequest request) {
         AuthUtil.requireRole(AuthUtil.ROLE_STAFF);
         AuthUtil.requireStoreAccess(storeId);
@@ -184,6 +190,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
 
         updateById(product);
         cacheUtil.invalidate(CacheKeys.productDetail(productId)); // 商品变更，失效商品详情缓存
+        enqueueIndexEvent(productId, "UPSERT");
     }
 
     // ── 6. deleteProduct ─────────────────────────────────────────────────────
@@ -221,6 +228,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
 
         removeById(productId);
         cacheUtil.invalidate(CacheKeys.productDetail(productId)); // 商品删除，失效商品详情缓存
+        enqueueIndexEvent(productId, "DELETE");
     }
 
     // ── 7. updateStock ────────────────────────────────────────────────────────
@@ -262,6 +270,12 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
     }
 
     // ── 私有辅助方法 ──────────────────────────────────────────────────────────
+
+    /** 入队索引同步事件（与商品写在同一事务内提交）。 */
+    private void enqueueIndexEvent(Long productId, String op) {
+        indexOutboxMapper.insert(IndexOutbox.builder()
+                .productId(productId).op(op).status("PENDING").retryCount(0).build());
+    }
 
     /**
      * 构建通用商品过滤条件（keyword / categoryId / minPrice / maxPrice），
