@@ -56,6 +56,30 @@ src/
 - **MyBatis Plus**: Pagination interceptor enabled for MySQL. Underscore-to-camelCase mapping on. Logical delete via `deleted` field (1=deleted, 0=active).
 - **Database**: Configure `spring.datasource.url/username/password` in `application.yml` before running.
 
+## 本地依赖服务（Local Dependencies）
+
+应用启动依赖以下本地服务，端口写在 `application.yml`（均可用环境变量覆盖）：
+
+| 服务 | 端口 | 用途 | 不可用时影响 |
+|---|---|---|---|
+| MySQL | 3305 | 主数据源（Flyway 启动自动迁移 V1~V7） | 应用无法启动 |
+| Redis | 6379 | 缓存 / 分布式锁 / 在线状态 | 相关功能不可用 |
+| **Qdrant** | 6333（REST）/ 6334（gRPC） | **AI 语义搜索向量库（模块十四）** | 语义搜索降级为关键词搜索，应用仍正常启动 |
+
+### Qdrant（向量库，Docker）
+
+- **镜像/容器**：`qdrant/qdrant:latest`，容器名 `qdrant`。Collection `products`（1024 维 / Cosine）由应用 `ensureCollection` 自动创建，无需手动建。
+- **首次创建**（仅一次，挂命名卷持久化）：
+  ```bash
+  docker run -d --name qdrant -p 6333:6333 -p 6334:6334 -v qdrant_storage:/qdrant/storage qdrant/qdrant
+  ```
+- **日常启动**（容器已存在、重启电脑后）：`docker start qdrant`
+- **可视化**：浏览器开 http://localhost:6333/dashboard
+- **自动启动**：本项目已在 `.claude/settings.local.json` 配了 `SessionStart` 钩子，**每次新会话 Claude Code 会自动 `docker start qdrant`（不存在则用上面带卷的 `docker run` 重建）**，前提是 Docker Desktop 已开启。Docker 未开时钩子静默跳过、不阻塞会话。
+- **数据持久化**：向量存于命名卷 `qdrant_storage`（挂到容器 `/qdrant/storage`）。`docker stop/start`、`docker rm` 重建均不丢数据；卷重新挂上即恢复。彻底清空：`docker volume rm qdrant_storage`（删卷后需重新 `reindex` 回填）。
+- 联调真实语义召回还需通义 DashScope 的 `DASHSCOPE_API_KEY`（仅 embedding 用；单测/集成测试用桩，不需 key）。阿里百炼 workspace key（`sk-ws-…`）在公网 DashScope 端点即可跑 `text-embedding-v3`，只设 `DASHSCOPE_API_KEY` 即可，无需改 URL。
+- **怎么测语义搜索 / 真实联调结果**：见 `docs/实现说明.md`「AI 语义搜索 → 本地联调与验证」一节（启动→reindex→`GET /api/products/semantic?q=...` 步骤 + 验证结果）。
+
 ## Common Commands
 
 ```bash

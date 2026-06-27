@@ -48,7 +48,75 @@
       "Bash(mvn -o test -Dtest=CacheUtilTest,RedisUtilTest)",
       "Bash(ls src/test/java/com/twentyzhang/bluewhale/service/)",
       "Bash(ls src/test/java/com/twentyzhang/bluewhale/controller/)",
-      "Bash(mvn -o test -Dtest=CacheUtilTest,RedisUtilTest,ProductCategoryServiceTest,StoreServiceTest,ReportServiceTest,ReviewServiceTest,ProductServiceTest)"
+      "Bash(mvn -o test -Dtest=CacheUtilTest,RedisUtilTest,ProductCategoryServiceTest,StoreServiceTest,ReportServiceTest,ReviewServiceTest,ProductServiceTest)",
+      "Bash(mvn -Dtest=StompAuthChannelInterceptorTest test)",
+      "Bash(git show *)",
+      "Bash(git checkout *)",
+      "Bash(grep -rn \"SEND\\\\|MESSAGE\\\\|DISCONNECT\" src/main/java/com/twentyzhang/bluewhale/interceptor/)",
+      "Bash(grep -rn \"MessageDeliveryException\\\\|MessagingException\" src/main/java/com/twentyzhang/bluewhale/)",
+      "Bash(mvn dependency:tree -q)",
+      "Bash(mvn dependency:tree)",
+      "Bash(grep -rn \"MessageDeliveryException\\\\|StompSubProtocolErrorHandler\\\\|handleClientMessageProcessingError\" src/)",
+      "Bash(grep -rn \"topic/store\\\\.\\\\|queue/\" src/main/java/)",
+      "Bash(mvn -Dtest=WebSocketPresenceListenerTest test)",
+      "Bash(mvn -Dtest=WebSocketPresenceListenerTest test -q)",
+      "Bash(mvn -q clean compile)",
+      "Bash(jar tf *)",
+      "Bash(mvn -Dtest=ChatServiceTest,StompAuthChannelInterceptorTest,WebSocketPresenceListenerTest,RedisUtilTest test)",
+      "Bash(mvn -Dtest=ChatServiceTest test)",
+      "Skill(code-review)",
+      "Bash(xargs cat)",
+      "Bash(mvn -Dtest=ChatServiceTest,StompAuthChannelInterceptorTest,WebSocketPresenceListenerTest test)",
+      "Read(//mnt/f/demos/**)",
+      "Bash(mvn -Dtest=ChatWebSocketIntegrationTest test)",
+      "Bash(mvn *)",
+      "Bash(git *)",
+      "Bash(rm *)",
+      "Bash(grep -q \"Started BluewhaleApplication\" target/app-run.log)",
+      "Bash(grep -qE \"APPLICATION FAILED|BUILD FAILURE\" target/app-run.log)",
+      "Bash(curl -s -m 5 \"http://localhost:8080/api/stores\")",
+      "Bash(curl -s -m 5 \"http://localhost:8080/api/products/1/recommendations?limit=3\")",
+      "Bash(curl -s -m 5 -i \"http://localhost:8080/api/stores\")",
+      "Bash(netstat -ano)",
+      "Bash(mysql -h127.0.0.1 -P3305 -uroot -p123456 -D bluewhale -N -e \"SELECT id, category_id, name FROM product ORDER BY id LIMIT 12; SELECT '---users---'; SELECT id, role FROM user ORDER BY id LIMIT 10;\")",
+      "Bash(curl -s --noproxy '*' -m 10 -X POST \"http://localhost:8090/api/auth/login\" -H \"Content-Type: application/json\" -d '{\"phone\":\"13000000000\",\"password\":\"Admin@123456\"}')",
+      "Bash(mysql -h127.0.0.1 -P3305 -uroot -p123456 -D bluewhale -N -e \"SELECT product_id, similar_product_id, score FROM product_similarity WHERE product_id=1 ORDER BY score DESC;\")",
+      "Bash(mysql -h127.0.0.1 -P3305 -uroot -p123456 -D bluewhale -N -e \"SELECT COUNT\\(*\\) FROM product_similarity;\")",
+      "Read(//c/Program Files/Redis/**)",
+      "Bash(where.exe redis-cli *)",
+      "Bash(grep -A12 \"INSERT INTO \\\\`user\\\\`\" src/main/resources/db/migration/R__seed_data.sql)",
+      "Bash(grep -nA4 \"jwt:\" src/main/resources/application.yml)",
+      "PowerShell(mvn *)",
+      "Read(//f/f/demos/claudeTry/docs/**)",
+      "Bash(python3 *)",
+      "Bash(command -v python3)",
+      "Bash(command -v python)",
+      "Bash(command -v py)",
+      "Bash(py -3 --version)",
+      "Bash(py *)",
+      "Bash(awk '/```plantuml/{f=1;n++;print \"=== diagram #\" n \" \\(line \" NR \"\\) ===\"} f{print} /```$/{if\\(f&&!/plantuml/\\)f=0}' docs/项目学习手册.md)",
+      "PowerShell($mysql = Test-NetConnection -ComputerName localhost -Port 3305 -WarningAction SilentlyContinue; $redis = Test-NetConnection -ComputerName localhost -Port 6379 -WarningAction SilentlyContinue; $qdrant = Test-NetConnection -ComputerName localhost -Port 6333 -WarningAction SilentlyContinue; \"MySQL\\(3305\\): $\\($mysql.TcpTestSucceeded\\)\"; \"Redis\\(6379\\): $\\($redis.TcpTestSucceeded\\)\"; \"Qdrant\\(6333\\): $\\($qdrant.TcpTestSucceeded\\)\")",
+      "PowerShell(docker version *)",
+      "PowerShell(docker run *)",
+      "PowerShell(docker ps --filter \"name=qdrant\" --format \"{{.Names}} | {{.Status}} | {{.Ports}}\"; Start-Sleep -Seconds 2; try { $r = Invoke-RestMethod -Uri \"http://localhost:6333/healthz\" -TimeoutSec 5; \"healthz: $r\" } catch { \"healthz failed: $\\($_.Exception.Message\\)\" }; try { $c = Invoke-RestMethod -Uri \"http://localhost:6333/collections\" -TimeoutSec 5; \"collections: \" + \\($c.result.collections | ConvertTo-Json -Compress\\) } catch { \"collections failed: $\\($_.Exception.Message\\)\" })",
+      "PowerShell(try { $c = Invoke-RestMethod -Uri \"http://localhost:6333/collections\" -TimeoutSec 5; \"collections: \" + \\(\\($c.result.collections | ForEach-Object { $_.name }\\) -join ', '\\) } catch { \"failed: $\\($_.Exception.Message\\)\" }; try { $p = Invoke-RestMethod -Uri \"http://localhost:6333/collections/products\" -TimeoutSec 5; \"products -> status=$\\($p.result.status\\) vectors=$\\($p.result.config.params.vectors.size\\) distance=$\\($p.result.config.params.vectors.distance\\) points=$\\($p.result.points_count\\)\" } catch { \"products detail failed: $\\($_.Exception.Message\\)\" })",
+      "Skill(update-config)",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:8080/api/products?size=1\" -TimeoutSec 8 -UseBasicParsing; \"app UP, http=$\\($r.StatusCode\\)\" } catch { \"app not ready: $\\($_.Exception.Message\\)\" })"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "docker start qdrant >/dev/null 2>&1 || docker run -d --name qdrant -p 6333:6333 -p 6334:6334 -v qdrant_storage:/qdrant/storage qdrant/qdrant >/dev/null 2>&1 || true",
+            "shell": "bash",
+            "timeout": 60,
+            "statusMessage": "Starting Qdrant (AI 语义搜索向量库)"
+          }
+        ]
+      }
     ]
   }
 }
