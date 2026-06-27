@@ -19,3 +19,7 @@ Thumbs.db
 # 阿里百炼 / DashScope API Key 导出文件（含明文密钥，切勿提交）
 *apiKey*.csv
 默认业务空间-apiKey-5866816.csv
+# DeepSeek / 其它 API key 明文文件（切勿提交）
+deepseek_key.txt
+*_key.txt
+src/deepseek_key.txt
