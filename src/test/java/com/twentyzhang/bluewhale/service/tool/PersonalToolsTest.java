@@ -36,10 +36,11 @@ class PersonalToolsTest {
     }
 
     @Test
-    void myCoupons_usesCtxUserId() throws Exception {
+    void myCoupons_alwaysUsesCtxUserId_ignoringArgsUserId() throws Exception {
         when(couponService.getMyCoupons(eq(7L), isNull())).thenReturn(List.of());
         MyCouponsTool tool = new MyCouponsTool(couponService);
-        tool.execute(om.readTree("{}"), new AgentContext(7L, "CUSTOMER"));
+        tool.execute(om.readTree("{\"userId\":999}"), new AgentContext(7L, "CUSTOMER"));
         verify(couponService).getMyCoupons(7L, null);
+        verify(couponService, never()).getMyCoupons(eq(999L), any());
     }
 }
