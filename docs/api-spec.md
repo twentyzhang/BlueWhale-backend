@@ -689,15 +689,17 @@ null
 
 ---
 
-### POST /api/orders/{orderId}/pay — 支付订单
+### POST /api/orders/{orderId}/pay — 发起支付
 
-**权限：** 仅 Customer（本人订单）
+> ⚠️ **破坏性变更（模拟支付，任务 D）**：不再直接置订单为 PAID，而是创建支付流水并返回收银台链接，前端需经收银台 + 查单轮询确认结果。完整异步回路（收银台 / 回调 / 查单）定义见下方「支付（模拟）」专节（约 1527 行起）。
 
-**请求体：** `{}` （模拟支付，无需真实支付参数）
+**权限：** 仅 Customer（本人订单，状态需为 `PENDING_PAYMENT`）
+
+**请求体：** `{}`
 
 **响应 data：**
 ```json
-{ "status": "PAID", "paidAt": "2026-05-20T10:05:00" }
+{ "tradeNo": "3f2a...e1", "payUrl": "/api/mock-pay/3f2a...e1", "amount": 9.90 }
 ```
 
 ---

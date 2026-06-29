@@ -246,8 +246,13 @@ accessToken 过期后，用 refreshToken 换取新 token，无需重新登录：
 | GET | `/api/products/{productId}` |
 | GET | `/api/products/{productId}/reviews` |
 | GET | `/api/coupon-groups` |
+| GET | `/api/products/semantic`（AI 语义搜索） |
+| GET | `/api/products/qa`（AI 导购问答，SSE） |
+| GET | `/api/products/{productId}/recommendations`（相关推荐） |
+| POST | `/api/mock-pay/{tradeNo}/success`、`/fail`（模拟收银台，演示用） |
+| POST | `/api/payments/notify`（支付回调 webhook，HMAC 验签） |
 
-> 其余所有接口都需要登录态。
+> 其余所有接口都需要登录态。`/api/payments/notify` 虽放行，但靠 HMAC 验签保护，非前端直接调用。
 
 ---
 
@@ -361,7 +366,7 @@ api.interceptors.response.use(
 | **优惠券试算** | POST `/api/orders/coupon-preview` | Customer | body: `cartItemIds`(long[],必), `couponIds`(long[],可选) | `{totalAmount,discountAmount,payableAmount,appliedCouponIds}` | 同下单的券校验错误→400 |
 | 我的订单 | GET `/api/orders` | Customer | query: `status`(可选), `page`,`size` | 分页：`{id,status,payableAmount,createdAt,storeName,itemCount}` | — |
 | 订单详情 | GET `/api/orders/{orderId}` | Customer（本人）/ Staff（本店） | path | `{id,status,totalAmount,discountAmount,payableAmount,createdAt,paidAt,address{...},items[...]}` | 不存在/越权→404/403 |
-| 支付 | POST `/api/orders/{orderId}/pay` | Customer（本人） | body `{}` | `{status:"PAID", paidAt}` | 状态非 PENDING_PAYMENT→400 |
+| 发起支付 | POST `/api/orders/{orderId}/pay` | Customer（本人） | body `{}` | **`{tradeNo, payUrl, amount}`**（异步回路，详见模块十三） | 状态非 PENDING_PAYMENT→400 |
 | 取消 | POST `/api/orders/{orderId}/cancel` | Customer（本人） | body `{}` | `{status:"CANCELLED", refunded}` | 状态非 PENDING_PAYMENT/PAID→400 |
 | 确认收货 | POST `/api/orders/{orderId}/confirm` | Customer（本人） | body `{}` | `{status:"COMPLETED"}` | 状态非 SHIPPED→400 |
 | 申请退款 | POST `/api/orders/{orderId}/refund` | Customer（本人） | body: `reason` | `{status:"CANCELLED", refundedAt}` | 状态非 COMPLETED→400 |
