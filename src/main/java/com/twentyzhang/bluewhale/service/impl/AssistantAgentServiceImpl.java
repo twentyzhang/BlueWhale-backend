@@ -32,6 +32,9 @@ public class AssistantAgentServiceImpl implements AssistantAgentService {
     private final ObjectMapper om;
     private final Executor executor;
 
+    /** Per-request disconnect flag; reset at start of each runLoop. */
+    private volatile boolean disconnected;
+
     public AssistantAgentServiceImpl(AgentChatClient client, ToolRegistry registry,
                                      AgentProperties props, ObjectMapper om,
                                      @Qualifier("assistantStreamExecutor") Executor executor) {
@@ -45,6 +48,7 @@ public class AssistantAgentServiceImpl implements AssistantAgentService {
     }
 
     private void runLoop(String q, AgentContext ctx, SseEmitter emitter) {
+        disconnected = false;
         List<AgentMessage> messages = new ArrayList<>();
         messages.add(AgentMessage.system(props.getSystemPrompt()));
         messages.add(AgentMessage.user(q));
@@ -52,6 +56,7 @@ public class AssistantAgentServiceImpl implements AssistantAgentService {
 
         try {
             for (int round = 0; round < props.getMaxRounds(); round++) {
+                if (disconnected) break;  // client gone — skip remaining rounds
                 AgentTurn turn = client.chat(messages, schemas);
                 if (!turn.hasToolCalls()) {
                     // 收敛：流式产出最终回答
@@ -98,7 +103,12 @@ public class AssistantAgentServiceImpl implements AssistantAgentService {
         } catch (Exception e) {
             log.warn("工具 {} 执行失败：{}", tool.name(), e.getMessage());
             sendJson(emitter, "tool", Map.of("tool", tool.name(), "ok", false));
-            return "{\"error\":\"工具执行失败：" + safe(e.getMessage()) + "\"}";
+            String msg = e.getMessage() == null ? "" : e.getMessage();
+            try {
+                return om.writeValueAsString(Map.of("error", "工具执行失败：" + msg));
+            } catch (Exception je) {
+                return "{\"error\":\"工具执行失败\"}";
+            }
         }
     }
 
@@ -121,12 +131,13 @@ public class AssistantAgentServiceImpl implements AssistantAgentService {
             } else {
                 emitter.send(SseEmitter.event().name(event).data(data));
             }
-        } catch (Exception ignored) { /* 客户端断开：停止后续推送 */ }
+        } catch (Exception ignored) {
+            disconnected = true;  // 客户端断开：标记后续轮次跳过
+        }
     }
 
     private void sendJson(SseEmitter emitter, String event, Object payload) {
         try { send(emitter, event, om.writeValueAsString(payload)); } catch (Exception ignored) {}
     }
 
-    private static String safe(String s) { return s == null ? "" : s.replace("\"", "'"); }
 }

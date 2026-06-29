@@ -15,6 +15,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -82,6 +83,33 @@ class AssistantAgentServiceTest {
         verify(emitter).complete();
         // chat() called exactly maxRounds times — proves the loop ran to the limit, not fewer
         verify(client, times(2)).chat(anyList(), anyList());
+    }
+
+    @Test
+    void disconnect_stopsRemainingRounds() throws Exception {
+        ToolRegistry reg = new ToolRegistry(List.of(fakeSearch()));
+        AgentProperties props = new AgentProperties();
+        props.setMaxRounds(5); // high limit — proves early abort, not just hitting the cap
+
+        // Simulate client disconnect: every emitter.send() throws
+        doThrow(new IOException("client gone")).when(emitter).send(any(SseEmitter.SseEventBuilder.class));
+
+        // client.chat() always returns a tool_call (never converges on its own)
+        when(client.chat(anyList(), anyList()))
+                .thenReturn(new AgentTurn(null, List.of(new ToolCall("c1", "search_products", "{}"))));
+
+        AssistantAgentServiceImpl svc =
+                new AssistantAgentServiceImpl(client, reg, props, new ObjectMapper(), Runnable::run);
+        svc.chat("耳机", new AgentContext(1L, "CUSTOMER"), emitter);
+
+        // The first emitter.send() (step event in executeTool) sets disconnected=true;
+        // round-0 completes its tool calls then the next iteration checks the flag and breaks.
+        // Pre-fix code would loop all 5 rounds (chat called 5 times).
+        verify(client, times(1)).chat(anyList(), anyList());
+        // streamFinal must never be called — client is gone
+        verify(client, never()).streamFinal(anyList(), any());
+        // complete() called exactly once (disconnected emitter swallows it harmlessly)
+        verify(emitter, times(1)).complete();
     }
 
     @Test
