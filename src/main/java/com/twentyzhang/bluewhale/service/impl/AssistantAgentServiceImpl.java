@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @Service
@@ -31,9 +32,6 @@ public class AssistantAgentServiceImpl implements AssistantAgentService {
     private final AgentProperties props;
     private final ObjectMapper om;
     private final Executor executor;
-
-    /** Per-request disconnect flag; reset at start of each runLoop. */
-    private volatile boolean disconnected;
 
     public AssistantAgentServiceImpl(AgentChatClient client, ToolRegistry registry,
                                      AgentProperties props, ObjectMapper om,
@@ -48,7 +46,8 @@ public class AssistantAgentServiceImpl implements AssistantAgentService {
     }
 
     private void runLoop(String q, AgentContext ctx, SseEmitter emitter) {
-        disconnected = false;
+        // Per-request disconnect flag — local variable, never shared across calls.
+        AtomicBoolean disconnected = new AtomicBoolean(false);
         List<AgentMessage> messages = new ArrayList<>();
         messages.add(AgentMessage.system(props.getSystemPrompt()));
         messages.add(AgentMessage.user(q));
@@ -56,53 +55,53 @@ public class AssistantAgentServiceImpl implements AssistantAgentService {
 
         try {
             for (int round = 0; round < props.getMaxRounds(); round++) {
-                if (disconnected) break;  // client gone — skip remaining rounds
+                if (disconnected.get()) break;  // client gone — skip remaining rounds
                 AgentTurn turn = client.chat(messages, schemas);
                 if (!turn.hasToolCalls()) {
                     // 收敛：流式产出最终回答
-                    client.streamFinal(messages, delta -> send(emitter, "answer", delta));
-                    send(emitter, "done", "");
+                    client.streamFinal(messages, delta -> send(emitter, "answer", delta, disconnected));
+                    send(emitter, "done", "", disconnected);
                     emitter.complete();
                     return;
                 }
                 // 记录 assistant 的 tool_calls，再逐个执行并回灌
                 messages.add(AgentMessage.assistantToolCalls(turn.toolCalls()));
                 for (ToolCall call : turn.toolCalls()) {
-                    String resultJson = executeTool(call, ctx, emitter);
+                    String resultJson = executeTool(call, ctx, emitter, disconnected);
                     messages.add(AgentMessage.tool(call.id(), resultJson));
                 }
             }
             // 超最大轮数未收敛
-            send(emitter, "error", "这个问题有点复杂，换个问法试试？");
+            send(emitter, "error", "这个问题有点复杂，换个问法试试？", disconnected);
             emitter.complete();
         } catch (Exception e) {
             log.warn("Agent 运行失败：{}", e.getMessage());
-            send(emitter, "error", "助手繁忙，请稍后再试");
+            send(emitter, "error", "助手繁忙，请稍后再试", disconnected);
             emitter.complete();
         }
     }
 
     /** 执行一个工具：发 step → 执行（命中商品推 products）→ 发 tool；返回回灌给 LLM 的 JSON。 */
-    private String executeTool(ToolCall call, AgentContext ctx, SseEmitter emitter) {
+    private String executeTool(ToolCall call, AgentContext ctx, SseEmitter emitter, AtomicBoolean disconnected) {
         Tool tool;
         try {
             tool = registry.get(call.name());
         } catch (IllegalArgumentException unknown) {
-            sendJson(emitter, "tool", Map.of("tool", call.name(), "ok", false));
+            sendJson(emitter, "tool", Map.of("tool", call.name(), "ok", false), disconnected);
             return "{\"error\":\"未知工具\"}";
         }
-        sendJson(emitter, "step", Map.of("tool", tool.name(), "label", stepLabel(tool.name())));
+        sendJson(emitter, "step", Map.of("tool", tool.name(), "label", stepLabel(tool.name())), disconnected);
         try {
             JsonNode args = om.readTree(call.argumentsJson() == null ? "{}" : call.argumentsJson());
             Object result = tool.execute(args, ctx);
             if (tool.producesProducts()) {
-                send(emitter, "products", om.writeValueAsString(result));
+                send(emitter, "products", om.writeValueAsString(result), disconnected);
             }
-            sendJson(emitter, "tool", Map.of("tool", tool.name(), "ok", true));
+            sendJson(emitter, "tool", Map.of("tool", tool.name(), "ok", true), disconnected);
             return om.writeValueAsString(result);
         } catch (Exception e) {
             log.warn("工具 {} 执行失败：{}", tool.name(), e.getMessage());
-            sendJson(emitter, "tool", Map.of("tool", tool.name(), "ok", false));
+            sendJson(emitter, "tool", Map.of("tool", tool.name(), "ok", false), disconnected);
             String msg = e.getMessage() == null ? "" : e.getMessage();
             try {
                 return om.writeValueAsString(Map.of("error", "工具执行失败：" + msg));
@@ -124,7 +123,7 @@ public class AssistantAgentServiceImpl implements AssistantAgentService {
         };
     }
 
-    private void send(SseEmitter emitter, String event, String data) {
+    private void send(SseEmitter emitter, String event, String data, AtomicBoolean disconnected) {
         try {
             if ("products".equals(event)) {
                 emitter.send(SseEmitter.event().name(event).data(data, MediaType.APPLICATION_JSON));
@@ -132,12 +131,12 @@ public class AssistantAgentServiceImpl implements AssistantAgentService {
                 emitter.send(SseEmitter.event().name(event).data(data));
             }
         } catch (Exception ignored) {
-            disconnected = true;  // 客户端断开：标记后续轮次跳过
+            disconnected.set(true);  // 客户端断开：标记后续轮次跳过
         }
     }
 
-    private void sendJson(SseEmitter emitter, String event, Object payload) {
-        try { send(emitter, event, om.writeValueAsString(payload)); } catch (Exception ignored) {}
+    private void sendJson(SseEmitter emitter, String event, Object payload, AtomicBoolean disconnected) {
+        try { send(emitter, event, om.writeValueAsString(payload), disconnected); } catch (Exception ignored) {}
     }
 
 }

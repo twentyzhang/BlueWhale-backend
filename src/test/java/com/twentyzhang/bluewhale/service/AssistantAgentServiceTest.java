@@ -113,6 +113,52 @@ class AssistantAgentServiceTest {
     }
 
     @Test
+    void disconnect_doesNotLeakAcrossRequests() throws Exception {
+        ToolRegistry reg = new ToolRegistry(List.of(fakeSearch()));
+        AgentProperties props = new AgentProperties();
+        props.setMaxRounds(5);
+
+        // --- Request 1: emitter that always throws (simulates disconnect) ---
+        SseEmitter emitter1 = mock(SseEmitter.class);
+        doThrow(new java.io.IOException("client gone")).when(emitter1).send(any(SseEmitter.SseEventBuilder.class));
+
+        // client always returns tool_call — never converges on its own
+        when(client.chat(anyList(), anyList()))
+                .thenReturn(new AgentTurn(null, List.of(new ToolCall("c1", "search_products", "{}"))));
+
+        AssistantAgentServiceImpl svc =
+                new AssistantAgentServiceImpl(client, reg, props, new ObjectMapper(), Runnable::run);
+
+        svc.chat("request1", new AgentContext(1L, "CUSTOMER"), emitter1);
+
+        // Disconnect on round-0's first send sets flag; round-1 guard breaks immediately.
+        verify(client, times(1)).chat(anyList(), anyList());
+        verify(client, never()).streamFinal(anyList(), any());
+
+        // --- Request 2: healthy emitter on the SAME service instance ---
+        SseEmitter emitter2 = mock(SseEmitter.class);
+        // emitter2 does NOT throw — default Mockito void-method behaviour
+
+        reset(client);
+        when(client.chat(anyList(), anyList()))
+                .thenReturn(new AgentTurn(null, List.of(new ToolCall("c2", "search_products", "{}"))))
+                .thenReturn(new AgentTurn("回答", List.of()));
+        doAnswer(inv -> {
+            Consumer<String> cb = inv.getArgument(1);
+            cb.accept("回答");
+            return null;
+        }).when(client).streamFinal(anyList(), any());
+
+        svc.chat("request2", new AgentContext(1L, "CUSTOMER"), emitter2);
+
+        // If the disconnect flag leaked from request 1, disconnected.get() would be true at the
+        // start of round-0, the loop would break immediately, streamFinal would never be called,
+        // and the assertions below would FAIL.
+        verify(client, times(1)).streamFinal(anyList(), any());
+        verify(emitter2, times(1)).complete();
+    }
+
+    @Test
     void toolThrows_feedsErrorResultButDoesNotCrash() throws Exception {
         Tool boom = new Tool() {
             public String name() { return "search_products"; }
