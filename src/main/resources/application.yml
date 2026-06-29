@@ -35,6 +35,10 @@ search:
   semantic:
     default-top-k: 50
 
+agent:
+  max-rounds: 5
+  emitter-timeout-ms: 60000
+
 rag:
   qwen:
     # 通义千问 key（与 embedding 共用 DASHSCOPE_API_KEY）
