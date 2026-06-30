@@ -36,7 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>验证两个场景：
  * <ol>
  *   <li>未登录访问 → HTTP 401（由 Spring Security 拦截）。</li>
- *   <li>已登录 → SSE 事件流至少含 {@code step}、{@code answer}、{@code done} 事件，
+ *   <li>已登录 → SSE 事件流至少含 {@code step}、{@code products}、{@code answer}、{@code done} 事件，
  *       且流式片段 "推荐"/"这款" 出现在响应体中。</li>
  * </ol>
  *
@@ -45,8 +45,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *   <li>Spring 上下文启动需要 MySQL（Flyway 自动迁移），这是既有集成测试的共同前提。</li>
  *   <li>认证场景额外需要 Redis（令牌版本校验）；通过 {@link #loginOrNull()} 探测，
  *       不可用时 {@link Assumptions#assumeTrue} 优雅跳过，不阻断纯单测套件。</li>
- *   <li>Qdrant 不可用时 search_products 工具执行失败，但异常被 executeTool 捕获并发 tool{ok:false}，
- *       循环仍推进到第 2 轮并产出 answer/done，因此断言不依赖搜索成功与否。</li>
+ *   <li>Qdrant 不可用时 {@code SemanticSearchServiceImpl} 内部捕获异常并降级关键词搜索，
+ *       {@code search_products} 工具始终成功返回列表（可能为空），{@code products} 事件无条件发出；
+ *       因此 {@code products} 断言无须基础设施守卫，不存在偶发失败。</li>
  * </ul>
  *
  * <p>注意：使用 {@code MockMvc}（非 {@code TestRestTemplate}）以避免 SSE 分块传输编码
@@ -84,7 +85,7 @@ class AssistantChatIntegrationTest {
     // -----------------------------------------------------------------------
 
     @Test
-    @DisplayName("已登录 → SSE 事件流含 step / answer / done 及流式文本片段")
+    @DisplayName("已登录 → SSE 事件流含 step / products / answer / done 及流式文本片段")
     void authenticated_streamsAgentEvents() throws Exception {
         // 桩脚本（两轮）：
         //   第 1 轮 chat() → 要求调 search_products（触发真实工具执行）
@@ -131,6 +132,9 @@ class AssistantChatIntegrationTest {
         // 必须显式指定 UTF-8，否则默认 ISO-8859-1 会乱码中文字符
         String body = asyncMvcResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertThat(body).as("SSE 流应含 step 事件（工具执行前）").contains("step");
+        // search_products 的 SemanticSearchService 内部降级，execute() 从不抛出；
+        // producesProducts()=true → products 事件无条件发出，断言无须基础设施守卫。
+        assertThat(body).as("SSE 流应含 products 事件（工具命中商品列表）").contains("products");
         assertThat(body).as("SSE 流应含 answer 事件（流式文本）").contains("answer");
         assertThat(body).as("SSE 流应含 done 事件（流结束）").contains("done");
         // 确认 streamFinal 回调被真实触发：delta 出现在响应体中
@@ -143,9 +147,10 @@ class AssistantChatIntegrationTest {
     // -----------------------------------------------------------------------
 
     /**
-     * 尝试以种子管理员账号登录，返回 access token；
+     * 尝试注册（首次运行若账号不存在则写入 user 表）后以种子管理员账号登录，返回 access token；
      * 任何异常（连接失败、HTTP 4xx/5xx 等）统一返回 null，供 assumeTrue 守卫使用。
-     * 同时验证 MySQL（用户表查询）和 Redis（令牌版本写入）均可用。
+     * 同时验证 MySQL（注册/登录写入）和 Redis（令牌版本写入）均可用。
+     * 注意：账号已存在时注册接口预期返回 4xx，忽略该错误继续登录。
      */
     private String loginOrNull() {
         try {
@@ -161,7 +166,7 @@ class AssistantChatIntegrationTest {
             String body = mvc.perform(post("/api/auth/login")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"phone\":\"13000000000\",\"password\":\"Admin@123456\"}"))
-                    .andReturn().getResponse().getContentAsString();
+                    .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
             JsonNode data = objectMapper.readTree(body).path("data");
             if (data.isMissingNode() || data.isNull()) return null;
             JsonNode tokenNode = data.get("token");
