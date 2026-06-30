@@ -7,6 +7,7 @@ import com.twentyzhang.bluewhale.service.AgentChatClient;
 import com.twentyzhang.bluewhale.service.llm.AgentMessage;
 import com.twentyzhang.bluewhale.service.llm.AgentTurn;
 import com.twentyzhang.bluewhale.service.llm.ToolCall;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -41,6 +42,7 @@ public class QwenAgentChatClient implements AgentChatClient {
     }
 
     @Override
+    @CircuitBreaker(name = "aiLlm", fallbackMethod = "chatFallback")
     public AgentTurn chat(List<AgentMessage> messages, List<Map<String, Object>> toolSchemas) {
         var q = props.getQwen();
         Map<String, Object> body = new HashMap<>();
@@ -59,7 +61,14 @@ public class QwenAgentChatClient implements AgentChatClient {
         return parseTurn(resp);
     }
 
+    /** 熔断降级：抛 IllegalStateException，由 AssistantAgentServiceImpl.runLoop() catch 推 error 事件。 */
+    public AgentTurn chatFallback(List<AgentMessage> messages, List<Map<String, Object>> toolSchemas, Throwable t) {
+        log.warn("LLM chat 熔断降级：{}", t.getMessage());
+        throw new IllegalStateException("LLM 暂不可用", t);
+    }
+
     @Override
+    @CircuitBreaker(name = "aiLlm", fallbackMethod = "streamFinalFallback")
     public void streamFinal(List<AgentMessage> messages, Consumer<String> onDelta) {
         var q = props.getQwen();
         Map<String, Object> body = new HashMap<>();
@@ -90,6 +99,12 @@ public class QwenAgentChatClient implements AgentChatClient {
                     }
                     return null;
                 });
+    }
+
+    /** 熔断降级：抛 IllegalStateException，由 AssistantAgentServiceImpl.runLoop() catch 推 error 事件。 */
+    public void streamFinalFallback(List<AgentMessage> messages, Consumer<String> onDelta, Throwable t) {
+        log.warn("LLM streamFinal 熔断降级：{}", t.getMessage());
+        throw new IllegalStateException("LLM 暂不可用", t);
     }
 
     /** 解析非流式响应：有 tool_calls 取之，否则取 content 作最终文本。 */

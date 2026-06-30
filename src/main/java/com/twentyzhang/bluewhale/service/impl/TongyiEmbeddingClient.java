@@ -3,6 +3,8 @@ package com.twentyzhang.bluewhale.service.impl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.twentyzhang.bluewhale.config.SearchProperties;
 import com.twentyzhang.bluewhale.service.EmbeddingClient;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -26,6 +28,8 @@ public class TongyiEmbeddingClient implements EmbeddingClient {
     }
 
     @Override
+    @CircuitBreaker(name = "aiEmbedding", fallbackMethod = "embedFallback")
+    @Retry(name = "aiEmbedding")
     public float[] embed(String text) {
         var t = props.getTongyi();
         Map<String, Object> body = Map.of(
@@ -54,5 +58,17 @@ public class TongyiEmbeddingClient implements EmbeddingClient {
                     "通义 embedding 维度不符：期望 " + t.getEmbeddingDimension() + "，实得 " + vec.length);
         }
         return vec;
+    }
+
+    /**
+     * 熔断/重试耗尽后的兜底：返回空数组。
+     * 调用方 SemanticSearchServiceImpl.search() 捕获所有异常降级关键词搜索；
+     * 当 embed 返回 float[0] 时，QdrantProductVectorIndex.search() 因向量维度不符（0 vs 1024）
+     * 触发 Qdrant HTTP 400，RestClient 抛出 RestClientResponseException，
+     * 从而被 SemanticSearchServiceImpl 的 catch 块接住，保证关键词降级路径正常触发。
+     */
+    public float[] embedFallback(String text, Throwable t) {
+        log.warn("embedding 降级（熔断/失败），text={}: {}", text, t.getMessage());
+        return new float[0];
     }
 }

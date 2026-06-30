@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.twentyzhang.bluewhale.config.RagProperties;
 import com.twentyzhang.bluewhale.service.ChatCompletionClient;
 import com.twentyzhang.bluewhale.service.llm.ChatMessage;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -41,6 +42,7 @@ public class QwenChatClient implements ChatCompletionClient {
     }
 
     @Override
+    @CircuitBreaker(name = "aiLlm", fallbackMethod = "streamChatFallback")
     public void streamChat(List<ChatMessage> messages, Consumer<String> onDelta) {
         var q = props.getQwen();
         Map<String, Object> body = new HashMap<>();
@@ -64,6 +66,12 @@ public class QwenChatClient implements ChatCompletionClient {
                     }
                     return null;
                 });
+    }
+
+    /** 熔断降级：抛 IllegalStateException，由 RagServiceImpl.answer() 的 executor lambda catch 推 error SSE 事件。 */
+    public void streamChatFallback(List<ChatMessage> messages, Consumer<String> onDelta, Throwable t) {
+        log.warn("LLM streamChat 熔断降级：{}", t.getMessage());
+        throw new IllegalStateException("LLM 暂不可用", t);
     }
 
     /** 逐行消费 OpenAI 风格 SSE：`data: {json}` 取 delta.content，`data: [DONE]` 终止。包级可见供单测。 */
