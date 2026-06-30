@@ -9,6 +9,7 @@ import com.twentyzhang.bluewhale.dto.StoreListItemResponse;
 import com.twentyzhang.bluewhale.exception.BusinessException;
 import com.twentyzhang.bluewhale.filter.JwtAuthenticationFilter;
 import com.twentyzhang.bluewhale.service.StoreService;
+import com.twentyzhang.bluewhale.util.RateLimitUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -48,6 +49,9 @@ class StoreControllerTest {
 
     @MockitoBean
     private StoreService storeService;
+
+    @MockitoBean
+    private RateLimitUtil rateLimitUtil;
 
     private void setupAuth(Long userId, String role) {
         AuthUser authUser = new AuthUser(userId, role, null);

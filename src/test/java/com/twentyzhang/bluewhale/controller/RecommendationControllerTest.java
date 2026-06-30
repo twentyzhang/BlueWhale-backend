@@ -4,6 +4,7 @@ import com.twentyzhang.bluewhale.config.SecurityConfig;
 import com.twentyzhang.bluewhale.dto.ProductListItemResponse;
 import com.twentyzhang.bluewhale.filter.JwtAuthenticationFilter;
 import com.twentyzhang.bluewhale.service.RecommendationService;
+import com.twentyzhang.bluewhale.util.RateLimitUtil;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +37,7 @@ class RecommendationControllerTest {
     @Autowired private MockMvc mvc;
 
     @MockitoBean private RecommendationService recommendationService;
+    @MockitoBean private RateLimitUtil rateLimitUtil;
 
     private static ProductListItemResponse item(long id) {
         return ProductListItemResponse.builder()

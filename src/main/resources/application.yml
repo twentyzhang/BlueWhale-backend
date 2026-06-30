@@ -119,6 +119,11 @@ resilience4j:
         max-attempts: 2
         wait-duration: 500ms
 
+ratelimit:
+  ai:
+    limit: 20
+    window-seconds: 60
+
 logging:
   level:
     com.twentyzhang.bluewhale: debug
