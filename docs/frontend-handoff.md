@@ -2,11 +2,46 @@
 
 > 本文档面向前端开发，描述后端已实现接口的调用方式、鉴权流程、错误处理、枚举值与本地启动方法。
 > 接口的完整字段定义以 [`api-spec.md`](./api-spec.md) 为准，本文档侧重「前端怎么用」。
-> 最后更新：2026-06-27（AI-2 导购问答：新增 GET /api/products/qa，SSE 流式检索增强生成）。
+> 最后更新：2026-06-30（AI-3 导购 Agent：新增 GET /api/assistant/chat，需登录，SSE 多轮工具调用，生产化护栏）。
 
 ---
 
 ## 0. 最近接口变更（前端需重点调整）
+
+> 最新更新（AI-3 导购 Agent）含 **0 处破坏性变更** 和 **1 个新能力**。
+
+### 🆕 新增能力（AI-3 导购 Agent）
+
+| # | 新增 | 接口 | 说明 |
+|---|---|---|---|
+| 12 | **AI 导购 Agent（SSE 流式，需登录）** | `GET /api/assistant/chat?q=...` | 多轮 Agent 对话，**需要登录**（与 RAG 开放不同）；限流 20 req/60s（超限返 `{code:429}`，HTTP 200）；用带 header 支持的 SSE 客户端接收。事件序列：`step`（工具执行前说明）→ `tool`（工具结果，含 ok 标志）→ `products`（商品卡数组，命中时推）→ `answer`（回答增量文本，多次，打字机追加）→ `done`；超轮数/异常为 `error`。 |
+
+**前端用法要点（SSE + 登录 + 429）：**
+
+```js
+// 浏览器原生 EventSource 不支持自定义 header，需用 fetch + ReadableStream 或 polyfill
+// 示例：使用 @microsoft/fetch-event-source
+import { fetchEventSource } from '@microsoft/fetch-event-source';
+
+await fetchEventSource(`/api/assistant/chat?q=${encodeURIComponent(q)}`, {
+  headers: { Authorization: `Bearer ${token}` },
+  onmessage(ev) {
+    if (ev.event === 'step')     showStep(ev.data);
+    if (ev.event === 'tool')     logTool(JSON.parse(ev.data));
+    if (ev.event === 'products') renderCards(JSON.parse(ev.data));
+    if (ev.event === 'answer')   appendText(ev.data);
+    if (ev.event === 'done')     closeStream();
+    if (ev.event === 'error')    { showError(ev.data); closeStream(); }
+  },
+});
+
+// 429 限流：fetch 得到的响应体为普通 JSON（非 SSE），检查 code 字段
+// { "code": 429, "message": "请求过于频繁，请稍后再试", "data": null }
+```
+
+> 与 RAG 的区别：`/api/products/qa` 开放、单轮；`/api/assistant/chat` 需登录、多轮工具调用，能访问「我的订单」「我的优惠券」等个人数据。
+
+---
 
 > ⚠️ **破坏性变更（任务 D 模拟支付）**：支付改为**异步回路 + 轮询**，下单后的支付流程要改。
 >
@@ -252,7 +287,7 @@ accessToken 过期后，用 refreshToken 换取新 token，无需重新登录：
 | POST | `/api/mock-pay/{tradeNo}/success`、`/fail`（模拟收银台，演示用） |
 | POST | `/api/payments/notify`（支付回调 webhook，HMAC 验签） |
 
-> 其余所有接口都需要登录态。`/api/payments/notify` 虽放行，但靠 HMAC 验签保护，非前端直接调用。
+> 其余所有接口都需要登录态。`/api/payments/notify` 虽放行，但靠 HMAC 验签保护，非前端直接调用。**注意：`GET /api/assistant/chat`（AI 导购 Agent）不在此开放清单中，必须携带有效 token。**
 
 ---
 
@@ -265,6 +300,7 @@ accessToken 过期后，用 refreshToken 换取新 token，无需重新登录：
 | 401 | 未登录 / Token 无效或过期 | 未带 token、token 过期、refreshToken 失效 | 触发刷新或跳转登录 |
 | 403 | 无权限 | 角色不符、Staff 操作他店资源、访问他人数据 | 提示「无权限」，不可重试 |
 | 404 | 资源不存在 | 商品 / 订单 / 地址 / 分类等不存在 | 提示资源不存在 |
+| 429 | 请求过于频繁（限流） | AI 端点超出 20 req/60s | 提示「请稍后再试」，退避后重发 |
 | 500 | 服务器内部错误 | 未预期异常 | 提示「服务繁忙，请稍后重试」 |
 
 > **🔄 第二轮 A 变更（非破坏性）：**
@@ -646,6 +682,51 @@ client.publish({
 - **不要假设 `/pay` 即支付成功**：必须经收银台 + 查单确认。
 - **真接支付宝时**：`/api/mock-pay/**` 这两个端点会删除（由支付宝收银台替代），`/pay` 发起、`/payments/{tradeNo}` 查单、回调验签的形态不变——前端只需把「跳收银台」从调 mock 端点换成跳支付宝返回的 `payUrl`。
 - **失败可重试**：`FAILED` 后订单仍待支付，可再次 `POST /pay` 生成新交易号重走流程。
+
+---
+
+### 模块十六：AI 导购 Agent（需登录，SSE 流式）
+
+> 手写多轮 Agent 循环，6 个工具（商品搜索 / 详情 / 库存 / 可领券 / 我的订单 / 我的券），生产化护栏（Resilience4j + Redis Lua 限流 + Actuator 监控）。**需要登录**，与 RAG（`/api/products/qa` 开放）不同。
+
+| 接口 | 方法/路径 | 权限 | 说明 |
+|---|---|---|---|
+| AI 导购 Agent | GET `/api/assistant/chat?q=...` | 需要登录 | SSE 流式，多轮工具调用；限流 20 req/60s |
+
+**SSE 事件说明：**
+
+| event | data 说明 | 前端动作 |
+|---|---|---|
+| `step` | 工具意图文本（如「正在搜索商品…」） | 展示 loading 说明，告知用户 Agent 正在工作 |
+| `tool` | `{"tool":"search_products","ok":true,"result":"..."}` | 可 debug 展示或忽略 |
+| `products` | 商品卡数组（结构同商品列表） | 立即渲染商品卡片 |
+| `answer` | 回答增量文本 | 追加为打字机效果 |
+| `done` | 空 | 关闭 SSE 连接，结束 loading |
+| `error` | 错误提示文案 | 展示错误提示，关闭连接 |
+
+**429 限流处理：**
+
+超出限流（20 req/60s）时，响应不是 SSE 流，而是普通 JSON（HTTP 200）：
+```json
+{ "code": 429, "message": "请求过于频繁，请稍后再试", "data": null }
+```
+
+建议：发请求前先检查是否为普通 JSON（Content-Type），若 `code=429` 则展示提示并退避重试。
+
+**SSE + 鉴权：**
+
+浏览器原生 `EventSource` 不支持 `Authorization` header。推荐使用 `@microsoft/fetch-event-source` 或自实现 fetch + ReadableStream。示例见「0. 最近接口变更 - AI-3 导购 Agent」。
+
+**对比 RAG（`/api/products/qa`）：**
+
+| 对比项 | RAG 导购问答 | AI 导购 Agent |
+|---|---|---|
+| 端点 | `GET /api/products/qa` | `GET /api/assistant/chat` |
+| 登录要求 | 无需登录 | **需要登录** |
+| 能力 | 单轮：检索 + 生成 | 多轮：工具调用 + 生成 |
+| 个人数据 | 无 | 可访问「我的订单」「我的券」 |
+| 限流 | 20 req/60s（共享 AI 限流） | 20 req/60s（同上） |
+| SSE 事件 | products→answer→done/error | step→tool→products→answer→done/error |
 
 ---
 

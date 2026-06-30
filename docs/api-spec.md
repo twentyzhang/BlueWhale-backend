@@ -1519,6 +1519,7 @@ Authorization: Bearer <admin-token>
 | **AI 语义搜索** | GET | `/api/products/semantic` | 无需登录（失败降级关键词搜索） |
 | | POST | `/api/admin/products/reindex` | Admin（全量重建索引） |
 | **AI 导购问答** | GET | `/api/products/qa` | 无需登录（SSE 流式，检索增强生成） |
+| **AI 导购 Agent** | GET | `/api/assistant/chat` | 需要登录（SSE 流式，多轮工具调用，限流 20/60s） |
 
 ---
 
@@ -1630,3 +1631,66 @@ data:
 ```
 
 > grounding：仅从检索到的候选商品推荐，不编造目录外商品；检索为空时 `products` 为 `[]` 且回一句「没找到相关商品」。生成侧 qwen 不可用时推 `error`（商品卡已先到）。
+
+---
+
+## 模块十六：AI 导购 Agent
+
+> 手写多轮 Agent 循环，6 个工具，SSE 流式推事件。**需要登录**（与 RAG 模块开放不同），限流 20 req/60s。详见 `重要决策说明.md` #59-63、`实现说明.md`「AI 导购 Agent」。
+
+### GET /api/assistant/chat — AI 导购 Agent（需登录，SSE 流式）
+
+**权限：** 需要登录（`anyRequest().authenticated()`，未在游客开放清单中）。
+
+| 参数 | 位置 | 必填 | 说明 |
+|---|---|---|---|
+| `q` | query | 是 | 用户问题文本（自然语言） |
+
+**限流：** 20 请求 / 60 秒（按 `userId` 计；超限见下方 429 说明）。
+
+**响应：** `text/event-stream`（SSE），前端用 `EventSource` + `Authorization` header（需登录，见「SSE 鉴权」注意）。
+
+**SSE 事件序列：**
+
+| event | data | 时机 |
+|---|---|---|
+| `step` | 工具执行意图说明文本（如「正在搜索相关商品…」） | 每次工具调用前推一次 |
+| `tool` | `{"tool":"search_products","ok":true,"result":"..."}` | 工具执行后推一次（ok=false 表示工具出错） |
+| `products` | 商品卡 JSON 数组（结构同 `ProductListItemResponse`） | 命中商品的工具执行后推（`search_products`/`get_product_detail`） |
+| `answer` | 回答增量文本 | 最终轮流式生成时多次推（前端追加为打字机效果） |
+| `done` | 空 | 生成正常结束 |
+| `error` | 错误提示文案 | 超轮数 / LLM 熔断 / 其他异常时推，替代 done |
+
+**事件序列示例（一次有工具调用的对话）：**
+```
+event:step
+data:正在为您搜索相关商品…
+
+event:tool
+data:{"tool":"search_products","ok":true,"result":"[{\"id\":5,\"name\":\"蓝鲸气泡水\",...}]"}
+
+event:products
+data:[{"id":5,"name":"蓝鲸气泡水 海盐柚子 330ml*6","price":29.90,"categoryName":"饮料",...}]
+
+event:answer
+data:根据您的需求，推荐
+
+event:answer
+data:蓝鲸气泡水，清爽解腻……
+
+event:done
+data:
+```
+
+**429 限流（超限响应）：**
+
+超限时接口仍返回 HTTP 200，响应体为：
+```json
+{ "code": 429, "message": "请求过于频繁，请稍后再试", "data": null }
+```
+
+> 注：项目约定以响应体 `code` 字段区分错误（HTTP 状态码不一定反映业务错误），前端应检查响应体 `code` 而非 HTTP 状态码。429 超限时连接不是 SSE 流，而是普通 JSON 响应（`GlobalExceptionHandler` 拦截 `BusinessException(429)` 返回）。
+
+**SSE 鉴权注意：**
+
+浏览器原生 `EventSource` 不支持自定义 header，无法直接携带 `Authorization: Bearer <token>`。推荐方案：① 使用带 header 支持的 polyfill（如 `@microsoft/fetch-event-source`）；② 通过 query 参数传 token（需后端配合）；③ 利用 cookie-based session（与本项目 JWT 无状态风格不符）。当前后端期望 `Authorization: Bearer <token>`，前端可用 fetch + ReadableStream 模拟 SSE 解析实现带 header 的请求。
