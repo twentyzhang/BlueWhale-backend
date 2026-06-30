@@ -88,7 +88,7 @@ Authorization: Bearer <token>
 | phone | string | 是 | 手机号，11位，唯一 |
 | password | string | 是 | 密码，6-20位 |
 | nickname | string | 是 | 用户昵称 |
-| role | string | 是 | 枚举：`CUSTOMER` / `STAFF`（Admin 不开放注册） |
+| role | string | 是 | 仍需通过 `@NotBlank/@Pattern` 校验（枚举 `CUSTOMER` / `STAFF`），但**业务层已忽略该值**——自注册一律创建 `CUSTOMER`，`STAFF`/`ADMIN` 仅由种子数据或后台分配（安全加固，见决策 #64） |
 
 **响应 data：**
 ```json
