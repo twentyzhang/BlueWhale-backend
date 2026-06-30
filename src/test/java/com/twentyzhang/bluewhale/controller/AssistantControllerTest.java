@@ -25,7 +25,7 @@ class AssistantControllerTest {
                 new com.twentyzhang.bluewhale.common.AuthUser(1L, "CUSTOMER", null), null, null);
         org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(auth);
         try {
-            SseEmitter e = c.chat("耳机", null);
+            SseEmitter e = c.chat("耳机");
             org.junit.jupiter.api.Assertions.assertNotNull(e);
             verify(agentService).chat(eq("耳机"), argThat(ctx -> ctx.userId().equals(1L)), any(SseEmitter.class));
         } finally {

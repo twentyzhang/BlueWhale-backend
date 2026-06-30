@@ -92,6 +92,7 @@ public class AssistantAgentServiceImpl implements AssistantAgentService {
         try {
             tool = registry.get(call.name());
         } catch (IllegalArgumentException unknown) {
+            metrics.recordToolInvocation(call.name(), false);
             sendJson(emitter, "tool", Map.of("tool", call.name(), "ok", false), disconnected);
             return "{\"error\":\"未知工具\"}";
         }

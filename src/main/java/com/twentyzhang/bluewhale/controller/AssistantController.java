@@ -20,8 +20,7 @@ public class AssistantController {
 
     /** AI 导购 Agent（需登录，SSE 流式）。 */
     @GetMapping(value = "/assistant/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter chat(@RequestParam String q,
-                           @RequestParam(required = false) Integer ignored) {
+    public SseEmitter chat(@RequestParam String q) {
         AuthUser user = AuthUtil.getCurrentUser();              // 入口捕获身份（未登录抛 401）
         SseEmitter emitter = new SseEmitter(props.getEmitterTimeoutMs());
         agentService.chat(q, new AgentContext(user.userId(), user.role()), emitter);

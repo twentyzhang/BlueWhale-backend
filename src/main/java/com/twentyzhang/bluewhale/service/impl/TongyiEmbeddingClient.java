@@ -7,6 +7,7 @@ import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -22,8 +23,12 @@ public class TongyiEmbeddingClient implements EmbeddingClient {
 
     public TongyiEmbeddingClient(SearchProperties props) {
         this.props = props;
+        SimpleClientHttpRequestFactory f = new SimpleClientHttpRequestFactory();
+        f.setConnectTimeout((int) props.getTimeoutMs());
+        f.setReadTimeout((int) props.getTimeoutMs());
         this.restClient = RestClient.builder()
                 .baseUrl(props.getTongyi().getEmbeddingUrl())
+                .requestFactory(f)
                 .build();
     }
 

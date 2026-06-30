@@ -13,6 +13,7 @@ public class SearchProperties {
     private final Tongyi tongyi = new Tongyi();
     private final Outbox outbox = new Outbox();
     private final Semantic semantic = new Semantic();
+    private long timeoutMs = 30000;
 
     @Data
     public static class Qdrant {
