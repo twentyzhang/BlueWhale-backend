@@ -1,0 +1,173 @@
+package com.twentyzhang.bluewhale;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.twentyzhang.bluewhale.service.AgentChatClient;
+import com.twentyzhang.bluewhale.service.llm.AgentTurn;
+import com.twentyzhang.bluewhale.service.llm.ToolCall;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.function.Consumer;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/**
+ * AI 导购 Agent 端到端集成测试（桩 AgentChatClient，真实 ToolRegistry / 工具 / 控制器）。
+ *
+ * <p>验证两个场景：
+ * <ol>
+ *   <li>未登录访问 → HTTP 401（由 Spring Security 拦截）。</li>
+ *   <li>已登录 → SSE 事件流至少含 {@code step}、{@code answer}、{@code done} 事件，
+ *       且流式片段 "推荐"/"这款" 出现在响应体中。</li>
+ * </ol>
+ *
+ * <p>基础设施依赖：
+ * <ul>
+ *   <li>Spring 上下文启动需要 MySQL（Flyway 自动迁移），这是既有集成测试的共同前提。</li>
+ *   <li>认证场景额外需要 Redis（令牌版本校验）；通过 {@link #loginOrNull()} 探测，
+ *       不可用时 {@link Assumptions#assumeTrue} 优雅跳过，不阻断纯单测套件。</li>
+ *   <li>Qdrant 不可用时 search_products 工具执行失败，但异常被 executeTool 捕获并发 tool{ok:false}，
+ *       循环仍推进到第 2 轮并产出 answer/done，因此断言不依赖搜索成功与否。</li>
+ * </ul>
+ *
+ * <p>注意：使用 {@code MockMvc}（非 {@code TestRestTemplate}）以避免 SSE 分块传输编码
+ * （chunked transfer encoding）在真实 TCP 栈上引发的 EOF 解析问题。MockMvc 在进程内
+ * 拦截响应，能正确收集 {@code SseEmitter} 异步写入的所有事件内容。
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+@DisplayName("AI 导购 Agent 端到端集成测试")
+class AssistantChatIntegrationTest {
+
+    @Autowired
+    MockMvc mvc;
+
+    @Autowired
+    ObjectMapper objectMapper;
+
+    /** 仅桩化 LLM 客户端；ToolRegistry / 工具 / 控制器均使用真实实现。 */
+    @MockitoBean
+    AgentChatClient agentChatClient;
+
+    // -----------------------------------------------------------------------
+    // 场景 1：未登录
+    // -----------------------------------------------------------------------
+
+    @Test
+    @DisplayName("未登录访问 /api/assistant/chat → 401")
+    void unauthenticated_returns401() throws Exception {
+        mvc.perform(get("/api/assistant/chat").param("q", "耳机"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // -----------------------------------------------------------------------
+    // 场景 2：已登录 → SSE 事件流
+    // -----------------------------------------------------------------------
+
+    @Test
+    @DisplayName("已登录 → SSE 事件流含 step / answer / done 及流式文本片段")
+    void authenticated_streamsAgentEvents() throws Exception {
+        // 桩脚本（两轮）：
+        //   第 1 轮 chat() → 要求调 search_products（触发真实工具执行）
+        //   第 2 轮 chat() → 收敛（hasToolCalls = false）→ 进入 streamFinal
+        when(agentChatClient.chat(anyList(), anyList()))
+                .thenReturn(new AgentTurn(null,
+                        List.of(new ToolCall("c1", "search_products", "{\"q\":\"耳机\"}"))))
+                .thenReturn(new AgentTurn("推荐这款", List.of()));
+
+        // streamFinal：模拟流式产出两个 delta，Agent 循环将各发一次 answer 事件
+        doAnswer(inv -> {
+            Consumer<String> cb = inv.getArgument(1);
+            cb.accept("推荐");
+            cb.accept("这款");
+            return null;
+        }).when(agentChatClient).streamFinal(anyList(), any());
+
+        // 基础设施守卫：尝试真实登录（需 MySQL + Redis）
+        // loginOrNull() 任何异常 → null → assumeTrue 优雅跳过本测试
+        String token = loginOrNull();
+        Assumptions.assumeTrue(token != null,
+                "基础设施（MySQL/Redis）不可用，跳过认证 SSE 集成测试");
+
+        // 发出异步请求（SseEmitter 立即返回，后台线程推送事件）
+        // SseEmitter 与 DeferredResult/Callable 不同：响应体在异步期间增量写入，
+        // 无需 asyncDispatch（dispatch 会重入 Security 过滤链而丢失 SecurityContext）；
+        // 直接等待 emitter.complete() 后从 MockHttpServletResponse 读取已累积的内容。
+        MvcResult asyncMvcResult = mvc.perform(
+                        get("/api/assistant/chat")
+                                .param("q", "耳机")
+                                .header("Authorization", "Bearer " + token)
+                                .accept(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        // 等待后台线程完成整个 Agent 循环（emitter.complete() 触发 async 完成）
+        asyncMvcResult.getAsyncResult(15_000L);
+
+        // 断言 HTTP 状态
+        assertThat(asyncMvcResult.getResponse().getStatus())
+                .as("SSE 响应应为 200").isEqualTo(200);
+
+        // 读取响应体（UTF-8）：MockMvc 在进程内拦截，SSE 事件已被增量写入 MockHttpServletResponse
+        // 必须显式指定 UTF-8，否则默认 ISO-8859-1 会乱码中文字符
+        String body = asyncMvcResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(body).as("SSE 流应含 step 事件（工具执行前）").contains("step");
+        assertThat(body).as("SSE 流应含 answer 事件（流式文本）").contains("answer");
+        assertThat(body).as("SSE 流应含 done 事件（流结束）").contains("done");
+        // 确认 streamFinal 回调被真实触发：delta 出现在响应体中
+        assertThat(body).as("响应体应含流式片段 '推荐'").contains("推荐");
+        assertThat(body).as("响应体应含流式片段 '这款'").contains("这款");
+    }
+
+    // -----------------------------------------------------------------------
+    // 辅助方法
+    // -----------------------------------------------------------------------
+
+    /**
+     * 尝试以种子管理员账号登录，返回 access token；
+     * 任何异常（连接失败、HTTP 4xx/5xx 等）统一返回 null，供 assumeTrue 守卫使用。
+     * 同时验证 MySQL（用户表查询）和 Redis（令牌版本写入）均可用。
+     */
+    private String loginOrNull() {
+        try {
+            // 注册（已存在则忽略）
+            mvc.perform(post("/api/auth/register")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"phone\":\"13000000000\",\"password\":\"Admin@123456\"," +
+                             "\"nickname\":\"管理员\",\"role\":\"ADMIN\"}"));
+        } catch (Exception ignored) {
+            // 已注册 / 注册路径异常都不致命，继续尝试登录
+        }
+        try {
+            String body = mvc.perform(post("/api/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"phone\":\"13000000000\",\"password\":\"Admin@123456\"}"))
+                    .andReturn().getResponse().getContentAsString();
+            JsonNode data = objectMapper.readTree(body).path("data");
+            if (data.isMissingNode() || data.isNull()) return null;
+            JsonNode tokenNode = data.get("token");
+            return tokenNode != null && !tokenNode.isNull() ? tokenNode.asText() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+}
