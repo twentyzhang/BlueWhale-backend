@@ -50,6 +50,11 @@ public class SecurityConfig {
                 .requestMatchers("/ws/**").permitAll()   // 握手放行，真正鉴权在 STOMP CONNECT 帧
                 .requestMatchers("/api/payments/notify").permitAll()   // 支付回调 webhook（靠 HMAC 验签）
                 .requestMatchers("/api/mock-pay/**").permitAll()       // 模拟收银台（外部网关流量）
+                // Actuator：health 端点公开（探针），其余（含 prometheus）仅 ADMIN 可访问
+                // hasAuthority("ADMIN") 而非 hasRole("ADMIN")：JwtAuthenticationFilter 存的是裸字符串
+                // "ADMIN"，hasRole 会在内部加 "ROLE_" 前缀而匹配失败
+                .requestMatchers("/actuator/health").permitAll()
+                .requestMatchers("/actuator/**").hasAuthority("ADMIN")
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

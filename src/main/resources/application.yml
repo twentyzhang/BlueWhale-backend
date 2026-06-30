@@ -124,6 +124,15 @@ ratelimit:
     limit: 20
     window-seconds: 60
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: never
+
 logging:
   level:
     com.twentyzhang.bluewhale: debug

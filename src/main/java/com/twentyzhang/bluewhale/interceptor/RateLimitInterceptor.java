@@ -1,6 +1,7 @@
 package com.twentyzhang.bluewhale.interceptor;
 
 import com.twentyzhang.bluewhale.common.AuthUser;
+import com.twentyzhang.bluewhale.config.AiMetrics;
 import com.twentyzhang.bluewhale.exception.BusinessException;
 import com.twentyzhang.bluewhale.util.RateLimitUtil;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +19,7 @@ import jakarta.servlet.http.HttpServletResponse;
 public class RateLimitInterceptor implements HandlerInterceptor {
 
     private final RateLimitUtil rateLimitUtil;
+    private final AiMetrics aiMetrics;
 
     @Value("${ratelimit.ai.limit:20}") int limit;
     @Value("${ratelimit.ai.window-seconds:60}") int windowSeconds;
@@ -27,6 +29,7 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         String subject = currentSubject(req);
         String key = "rl:ai:" + subject;
         if (!rateLimitUtil.tryAcquire(key, limit, windowSeconds)) {
+            aiMetrics.recordRateLimitRejected();
             throw new BusinessException(429, "请求太频繁，请稍后再试");
         }
         return true;

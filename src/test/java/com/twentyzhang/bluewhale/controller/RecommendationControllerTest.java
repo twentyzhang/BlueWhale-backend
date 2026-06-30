@@ -1,5 +1,6 @@
 package com.twentyzhang.bluewhale.controller;
 
+import com.twentyzhang.bluewhale.config.AiMetrics;
 import com.twentyzhang.bluewhale.config.SecurityConfig;
 import com.twentyzhang.bluewhale.dto.ProductListItemResponse;
 import com.twentyzhang.bluewhale.filter.JwtAuthenticationFilter;
@@ -38,6 +39,7 @@ class RecommendationControllerTest {
 
     @MockitoBean private RecommendationService recommendationService;
     @MockitoBean private RateLimitUtil rateLimitUtil;
+    @MockitoBean private AiMetrics aiMetrics;
 
     private static ProductListItemResponse item(long id) {
         return ProductListItemResponse.builder()

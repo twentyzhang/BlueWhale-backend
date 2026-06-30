@@ -3,6 +3,7 @@ package com.twentyzhang.bluewhale.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.twentyzhang.bluewhale.common.AuthUser;
 import com.twentyzhang.bluewhale.common.Result;
+import com.twentyzhang.bluewhale.config.AiMetrics;
 import com.twentyzhang.bluewhale.config.SecurityConfig;
 import com.twentyzhang.bluewhale.dto.StoreDetailResponse;
 import com.twentyzhang.bluewhale.dto.StoreListItemResponse;
@@ -52,6 +53,9 @@ class StoreControllerTest {
 
     @MockitoBean
     private RateLimitUtil rateLimitUtil;
+
+    @MockitoBean
+    private AiMetrics aiMetrics;
 
     private void setupAuth(Long userId, String role) {
         AuthUser authUser = new AuthUser(userId, role, null);

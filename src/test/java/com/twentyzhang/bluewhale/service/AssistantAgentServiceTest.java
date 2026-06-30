@@ -2,7 +2,9 @@ package com.twentyzhang.bluewhale.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.twentyzhang.bluewhale.config.AgentProperties;
+import com.twentyzhang.bluewhale.config.AiMetrics;
 import com.twentyzhang.bluewhale.service.impl.AssistantAgentServiceImpl;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.twentyzhang.bluewhale.service.llm.AgentMessage;
 import com.twentyzhang.bluewhale.service.llm.AgentTurn;
 import com.twentyzhang.bluewhale.service.llm.ToolCall;
@@ -29,7 +31,8 @@ class AssistantAgentServiceTest {
     @Mock SseEmitter emitter;
 
     private AssistantAgentServiceImpl service(ToolRegistry reg) {
-        return new AssistantAgentServiceImpl(client, reg, new AgentProperties(), new ObjectMapper(), Runnable::run);
+        return new AssistantAgentServiceImpl(client, reg, new AgentProperties(), new ObjectMapper(), Runnable::run,
+                new AiMetrics(new SimpleMeterRegistry()));
     }
 
     static Tool fakeSearch() {
@@ -73,7 +76,8 @@ class AssistantAgentServiceTest {
         when(client.chat(anyList(), anyList()))
                 .thenReturn(new AgentTurn(null, List.of(new ToolCall("c","search_products","{}"))));
         AssistantAgentServiceImpl svc =
-                new AssistantAgentServiceImpl(client, reg, props, new ObjectMapper(), Runnable::run);
+                new AssistantAgentServiceImpl(client, reg, props, new ObjectMapper(), Runnable::run,
+                        new AiMetrics(new SimpleMeterRegistry()));
 
         svc.chat("耳机", new AgentContext(1L,"CUSTOMER"), emitter);
 
@@ -99,7 +103,8 @@ class AssistantAgentServiceTest {
                 .thenReturn(new AgentTurn(null, List.of(new ToolCall("c1", "search_products", "{}"))));
 
         AssistantAgentServiceImpl svc =
-                new AssistantAgentServiceImpl(client, reg, props, new ObjectMapper(), Runnable::run);
+                new AssistantAgentServiceImpl(client, reg, props, new ObjectMapper(), Runnable::run,
+                        new AiMetrics(new SimpleMeterRegistry()));
         svc.chat("耳机", new AgentContext(1L, "CUSTOMER"), emitter);
 
         // The first emitter.send() (step event in executeTool) sets disconnected=true;
@@ -127,7 +132,8 @@ class AssistantAgentServiceTest {
                 .thenReturn(new AgentTurn(null, List.of(new ToolCall("c1", "search_products", "{}"))));
 
         AssistantAgentServiceImpl svc =
-                new AssistantAgentServiceImpl(client, reg, props, new ObjectMapper(), Runnable::run);
+                new AssistantAgentServiceImpl(client, reg, props, new ObjectMapper(), Runnable::run,
+                        new AiMetrics(new SimpleMeterRegistry()));
 
         svc.chat("request1", new AgentContext(1L, "CUSTOMER"), emitter1);
 

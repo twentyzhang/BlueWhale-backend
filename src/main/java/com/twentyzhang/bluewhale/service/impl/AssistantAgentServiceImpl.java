@@ -3,6 +3,7 @@ package com.twentyzhang.bluewhale.service.impl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.twentyzhang.bluewhale.config.AgentProperties;
+import com.twentyzhang.bluewhale.config.AiMetrics;
 import com.twentyzhang.bluewhale.service.AgentChatClient;
 import com.twentyzhang.bluewhale.service.AssistantAgentService;
 import com.twentyzhang.bluewhale.service.llm.AgentMessage;
@@ -32,12 +33,14 @@ public class AssistantAgentServiceImpl implements AssistantAgentService {
     private final AgentProperties props;
     private final ObjectMapper om;
     private final Executor executor;
+    private final AiMetrics metrics;
 
     public AssistantAgentServiceImpl(AgentChatClient client, ToolRegistry registry,
                                      AgentProperties props, ObjectMapper om,
-                                     @Qualifier("assistantStreamExecutor") Executor executor) {
+                                     @Qualifier("assistantStreamExecutor") Executor executor,
+                                     AiMetrics metrics) {
         this.client = client; this.registry = registry; this.props = props;
-        this.om = om; this.executor = executor;
+        this.om = om; this.executor = executor; this.metrics = metrics;
     }
 
     @Override
@@ -61,6 +64,7 @@ public class AssistantAgentServiceImpl implements AssistantAgentService {
                     // 收敛：流式产出最终回答
                     client.streamFinal(messages, delta -> send(emitter, "answer", delta, disconnected));
                     send(emitter, "done", "", disconnected);
+                    metrics.recordAgentRounds(round + 1);
                     emitter.complete();
                     return;
                 }
@@ -72,6 +76,7 @@ public class AssistantAgentServiceImpl implements AssistantAgentService {
                 }
             }
             // 超最大轮数未收敛
+            metrics.recordAgentRounds(props.getMaxRounds());
             send(emitter, "error", "这个问题有点复杂，换个问法试试？", disconnected);
             emitter.complete();
         } catch (Exception e) {
@@ -97,10 +102,12 @@ public class AssistantAgentServiceImpl implements AssistantAgentService {
             if (tool.producesProducts()) {
                 send(emitter, "products", om.writeValueAsString(result), disconnected);
             }
+            metrics.recordToolInvocation(tool.name(), true);
             sendJson(emitter, "tool", Map.of("tool", tool.name(), "ok", true), disconnected);
             return om.writeValueAsString(result);
         } catch (Exception e) {
             log.warn("工具 {} 执行失败：{}", tool.name(), e.getMessage());
+            metrics.recordToolInvocation(tool.name(), false);
             sendJson(emitter, "tool", Map.of("tool", tool.name(), "ok", false), disconnected);
             String msg = e.getMessage() == null ? "" : e.getMessage();
             try {

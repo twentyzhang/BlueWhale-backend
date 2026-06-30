@@ -1,6 +1,7 @@
 package com.twentyzhang.bluewhale.controller;
 
 import com.twentyzhang.bluewhale.common.AuthUser;
+import com.twentyzhang.bluewhale.config.AiMetrics;
 import com.twentyzhang.bluewhale.config.SecurityConfig;
 import com.twentyzhang.bluewhale.dto.LoginResponse;
 import com.twentyzhang.bluewhale.exception.BusinessException;
@@ -49,6 +50,9 @@ class UserControllerTest {
 
     @MockitoBean
     private RateLimitUtil rateLimitUtil;
+
+    @MockitoBean
+    private AiMetrics aiMetrics;
 
     /** 为需要鉴权的测试设置 SecurityContext。 */
     private void setupAuth(Long userId, String role) {
