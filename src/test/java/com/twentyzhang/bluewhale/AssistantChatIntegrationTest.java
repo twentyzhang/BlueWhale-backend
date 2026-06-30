@@ -2,6 +2,7 @@ package com.twentyzhang.bluewhale;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.twentyzhang.bluewhale.service.AgentChatClient;
+import com.twentyzhang.bluewhale.service.EmbeddingClient;
 import com.twentyzhang.bluewhale.service.llm.AgentTurn;
 import com.twentyzhang.bluewhale.service.llm.ToolCall;
 import org.junit.jupiter.api.Assumptions;
@@ -23,6 +24,7 @@ import java.util.function.Consumer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -69,6 +71,20 @@ class AssistantChatIntegrationTest {
     @MockitoBean
     AgentChatClient agentChatClient;
 
+    /**
+     * 桩化 embedding 客户端（固定向量）。否则 search_products 工具会触发真实
+     * {@code TongyiEmbeddingClient} → 真实 DashScope 网络调用：违反「集成测试绝不打真实 DashScope」，
+     * 且 Task 9 的 {@code @Retry}（2 次 + 500ms）会把单次请求拉到 ~16s，超过下方 15s 异步等待导致超时。
+     */
+    @MockitoBean
+    EmbeddingClient embeddingClient;
+
+    private static float[] fixedVector() {
+        float[] v = new float[1024];
+        v[0] = 1.0f;
+        return v;
+    }
+
     // -----------------------------------------------------------------------
     // 场景 1：未登录
     // -----------------------------------------------------------------------
@@ -102,6 +118,9 @@ class AssistantChatIntegrationTest {
             cb.accept("这款");
             return null;
         }).when(agentChatClient).streamFinal(anyList(), any());
+
+        // 桩 embedding：固定向量，search_products 走向量库/降级关键词搜索，绝不打真实 DashScope
+        when(embeddingClient.embed(anyString())).thenReturn(fixedVector());
 
         // 基础设施守卫：尝试真实登录（需 MySQL + Redis）
         // loginOrNull() 任何异常 → null → assumeTrue 优雅跳过本测试
