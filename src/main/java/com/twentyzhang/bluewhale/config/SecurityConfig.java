@@ -1,6 +1,7 @@
 package com.twentyzhang.bluewhale.config;
 
 import com.twentyzhang.bluewhale.filter.JwtAuthenticationFilter;
+import com.twentyzhang.bluewhale.filter.MetricsTokenFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,6 +21,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final MetricsTokenFilter metricsTokenFilter;
     private final RestAuthenticationEntryPoint restAuthenticationEntryPoint;
     private final RestAccessDeniedHandler restAccessDeniedHandler;
 
@@ -57,6 +59,7 @@ public class SecurityConfig {
                 .requestMatchers("/actuator/**").hasAuthority("ADMIN")
                 .anyRequest().authenticated()
             )
+            .addFilterBefore(metricsTokenFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

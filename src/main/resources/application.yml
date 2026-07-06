@@ -69,9 +69,9 @@ spring:
 
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3305/bluewhale?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-    username: root
-    password: 123456
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3305/bluewhale?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:123456}
 
   # Flyway 数据库迁移：应用启动时自动执行 classpath:db/migration 下未应用的脚本
   flyway:
@@ -125,14 +125,19 @@ ratelimit:
     window-seconds: 60
 
 management:
+  metrics-token: ${MANAGEMENT_METRICS_TOKEN:}
   endpoints:
     web:
       exposure:
         include: health,prometheus
   endpoint:
+    prometheus:
+      access: read_only
     health:
       show-details: never
 
 logging:
+  pattern:
+    level: "%5p [requestId:%X{requestId:-}]"
   level:
     com.twentyzhang.bluewhale: debug
