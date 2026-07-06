@@ -131,8 +131,6 @@ management:
       exposure:
         include: health,prometheus
   endpoint:
-    prometheus:
-      access: read_only
     health:
       show-details: never
 
