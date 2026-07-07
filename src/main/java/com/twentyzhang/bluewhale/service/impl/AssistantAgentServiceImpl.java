@@ -6,6 +6,10 @@ import com.twentyzhang.bluewhale.config.AgentProperties;
 import com.twentyzhang.bluewhale.config.AiMetrics;
 import com.twentyzhang.bluewhale.service.AgentChatClient;
 import com.twentyzhang.bluewhale.service.AssistantAgentService;
+import com.twentyzhang.bluewhale.service.agent.AgentClarificationPolicy;
+import com.twentyzhang.bluewhale.service.agent.AgentIntent;
+import com.twentyzhang.bluewhale.service.agent.AgentIntentClassifier;
+import com.twentyzhang.bluewhale.service.agent.AgentPromptComposer;
 import com.twentyzhang.bluewhale.service.llm.AgentMessage;
 import com.twentyzhang.bluewhale.service.llm.AgentTurn;
 import com.twentyzhang.bluewhale.service.llm.ToolCall;
@@ -34,13 +38,22 @@ public class AssistantAgentServiceImpl implements AssistantAgentService {
     private final ObjectMapper om;
     private final Executor executor;
     private final AiMetrics metrics;
+    private final AgentIntentClassifier intentClassifier;
+    private final AgentClarificationPolicy clarificationPolicy;
+    private final AgentPromptComposer promptComposer;
 
     public AssistantAgentServiceImpl(AgentChatClient client, ToolRegistry registry,
                                      AgentProperties props, ObjectMapper om,
                                      @Qualifier("assistantStreamExecutor") Executor executor,
-                                     AiMetrics metrics) {
+                                     AiMetrics metrics,
+                                     AgentIntentClassifier intentClassifier,
+                                     AgentClarificationPolicy clarificationPolicy,
+                                     AgentPromptComposer promptComposer) {
         this.client = client; this.registry = registry; this.props = props;
         this.om = om; this.executor = executor; this.metrics = metrics;
+        this.intentClassifier = intentClassifier;
+        this.clarificationPolicy = clarificationPolicy;
+        this.promptComposer = promptComposer;
     }
 
     @Override
@@ -52,11 +65,22 @@ public class AssistantAgentServiceImpl implements AssistantAgentService {
         // Per-request disconnect flag — local variable, never shared across calls.
         AtomicBoolean disconnected = new AtomicBoolean(false);
         List<AgentMessage> messages = new ArrayList<>();
-        messages.add(AgentMessage.system(props.getSystemPrompt()));
-        messages.add(AgentMessage.user(q));
-        List<Map<String, Object>> schemas = registry.toolSchemas();
+        AgentIntent intent = intentClassifier.classify(q);
 
         try {
+            var clarification = clarificationPolicy.maybeAsk(q, intent);
+            if (clarification.isPresent()) {
+                send(emitter, "answer", clarification.get(), disconnected);
+                send(emitter, "done", "", disconnected);
+                metrics.recordAgentRounds(0);
+                emitter.complete();
+                return;
+            }
+
+            messages.add(AgentMessage.system(promptComposer.compose(intent)));
+            messages.add(AgentMessage.user(q));
+            List<Map<String, Object>> schemas = registry.toolSchemas();
+
             for (int round = 0; round < props.getMaxRounds(); round++) {
                 if (disconnected.get()) break;  // client gone — skip remaining rounds
                 AgentTurn turn = client.chat(messages, schemas);

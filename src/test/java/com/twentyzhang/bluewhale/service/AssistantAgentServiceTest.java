@@ -31,8 +31,20 @@ class AssistantAgentServiceTest {
     @Mock SseEmitter emitter;
 
     private AssistantAgentServiceImpl service(ToolRegistry reg) {
-        return new AssistantAgentServiceImpl(client, reg, new AgentProperties(), new ObjectMapper(), Runnable::run,
-                new AiMetrics(new SimpleMeterRegistry()));
+        return service(reg, new AgentProperties());
+    }
+
+    private AssistantAgentServiceImpl service(ToolRegistry reg, AgentProperties props) {
+        return new AssistantAgentServiceImpl(
+                client,
+                reg,
+                props,
+                new ObjectMapper(),
+                Runnable::run,
+                new AiMetrics(new SimpleMeterRegistry()),
+                new com.twentyzhang.bluewhale.service.agent.AgentIntentClassifier(),
+                new com.twentyzhang.bluewhale.service.agent.AgentClarificationPolicy(),
+                new com.twentyzhang.bluewhale.service.agent.AgentPromptComposer(props));
     }
 
     static Tool fakeSearch() {
@@ -43,6 +55,18 @@ class AssistantAgentServiceTest {
             public Object execute(com.fasterxml.jackson.databind.JsonNode a, AgentContext c) { return List.of(); }
             public boolean producesProducts() { return true; }
         };
+    }
+
+    @Test
+    void vagueRequest_asksClarificationWithoutCallingLlmOrTools() throws Exception {
+        ToolRegistry reg = new ToolRegistry(List.of(fakeSearch()));
+
+        service(reg).chat("推荐点东西", new AgentContext(1L, "CUSTOMER"), emitter);
+
+        verify(client, never()).chat(anyList(), anyList());
+        verify(client, never()).streamFinal(anyList(), any());
+        verify(emitter, times(2)).send(any(SseEmitter.SseEventBuilder.class));
+        verify(emitter).complete();
     }
 
     @Test
@@ -75,9 +99,7 @@ class AssistantAgentServiceTest {
         // 永远返回 tool_call，制造不收敛
         when(client.chat(anyList(), anyList()))
                 .thenReturn(new AgentTurn(null, List.of(new ToolCall("c","search_products","{}"))));
-        AssistantAgentServiceImpl svc =
-                new AssistantAgentServiceImpl(client, reg, props, new ObjectMapper(), Runnable::run,
-                        new AiMetrics(new SimpleMeterRegistry()));
+        AssistantAgentServiceImpl svc = service(reg, props);
 
         svc.chat("耳机", new AgentContext(1L,"CUSTOMER"), emitter);
 
@@ -102,9 +124,7 @@ class AssistantAgentServiceTest {
         when(client.chat(anyList(), anyList()))
                 .thenReturn(new AgentTurn(null, List.of(new ToolCall("c1", "search_products", "{}"))));
 
-        AssistantAgentServiceImpl svc =
-                new AssistantAgentServiceImpl(client, reg, props, new ObjectMapper(), Runnable::run,
-                        new AiMetrics(new SimpleMeterRegistry()));
+        AssistantAgentServiceImpl svc = service(reg, props);
         svc.chat("耳机", new AgentContext(1L, "CUSTOMER"), emitter);
 
         // The first emitter.send() (step event in executeTool) sets disconnected=true;
@@ -131,9 +151,7 @@ class AssistantAgentServiceTest {
         when(client.chat(anyList(), anyList()))
                 .thenReturn(new AgentTurn(null, List.of(new ToolCall("c1", "search_products", "{}"))));
 
-        AssistantAgentServiceImpl svc =
-                new AssistantAgentServiceImpl(client, reg, props, new ObjectMapper(), Runnable::run,
-                        new AiMetrics(new SimpleMeterRegistry()));
+        AssistantAgentServiceImpl svc = service(reg, props);
 
         svc.chat("request1", new AgentContext(1L, "CUSTOMER"), emitter1);
 
