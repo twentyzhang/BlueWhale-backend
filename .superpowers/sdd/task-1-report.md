@@ -29,3 +29,13 @@ DONE_WITH_CONCERNS
 
 ## Concerns
 - Focused Maven verification is blocked by external dependency resolution, so I could not observe the final green run in this sandbox
+
+## Controller supplemental verification
+- Command: `mvn "-Dtest=AgentIntentClassifierTest,AgentClarificationPolicyTest" test`
+- Result: PASS after running with required Maven/network permissions in the controller environment.
+- Summary: 8 tests run, 0 failures, 0 errors, 0 skipped.
+
+## Doc cleanup fix
+- Files changed: `docs/进度.md`, `.superpowers/sdd/task-1-report.md`
+- Test command: `mvn "-Dtest=AgentIntentClassifierTest,AgentClarificationPolicyTest" test`
+- Result: blocked in this sandbox because Maven could not resolve `org.springframework.boot:spring-boot-starter-parent:3.4.0` from Maven Central (`Permission denied: getsockopt`)
