@@ -13,7 +13,9 @@ public class MyCouponsTool implements Tool {
     private final CouponService couponService;
 
     public String name() { return "list_my_coupons"; }
-    public String description() { return "查询当前登录用户已领取的优惠券。可选 status（UNUSED/USED/EXPIRED）过滤。"; }
+    public String description() {
+        return "查询当前登录用户已领取的优惠券。用户问我的券、我有哪些优惠、我的券能不能用时使用。必须只基于当前用户上下文。可选 status（UNUSED/USED/EXPIRED）过滤。";
+    }
     public Map<String, Object> parametersSchema() {
         return Map.of("type", "object",
                 "properties", Map.of("status", Map.of("type", "string",

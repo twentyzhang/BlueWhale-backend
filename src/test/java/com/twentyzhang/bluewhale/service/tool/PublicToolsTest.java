@@ -39,6 +39,8 @@ class PublicToolsTest {
         assertTrue(result instanceof List<?>);
         assertTrue(tool.producesProducts());
         assertEquals("search_products", tool.name());
+        assertTrue(tool.description().contains("商品推荐"));
+        assertTrue(tool.description().contains("预算/用途/对象"));
     }
 
     @Test
@@ -61,6 +63,8 @@ class PublicToolsTest {
         CheckStockTool tool = new CheckStockTool(productService);
         Object r = tool.execute(om.readTree("{\"productId\":5}"), new AgentContext(1L, "CUSTOMER"));
         Map<?, ?> m = (Map<?, ?>) r;
+        assertTrue(tool.description().contains("能不能买"));
+        assertTrue(tool.description().contains("需先知道 productId"));
         assertEquals(5L, m.get("productId"));
         assertEquals("酱油", m.get("name"));
         assertEquals(12, m.get("stock"));
@@ -73,6 +77,8 @@ class PublicToolsTest {
         when(productService.getProductById(7L)).thenReturn(expected);
         ProductDetailTool tool = new ProductDetailTool(productService);
         Object result = tool.execute(om.readTree("{\"productId\":7}"), new AgentContext(1L, "CUSTOMER"));
+        assertTrue(tool.description().contains("进一步比较"));
+        assertTrue(tool.description().contains("需 productId"));
         assertSame(expected, result);
         verify(productService).getProductById(7L);
     }
@@ -87,6 +93,8 @@ class PublicToolsTest {
         ListClaimableCouponsTool tool = new ListClaimableCouponsTool(couponGroupService);
         Object result = tool.execute(om.readTree("{}"), new AgentContext(1L, "CUSTOMER"));
         List<?> records = (List<?>) result;
+        assertTrue(tool.description().contains("平台或店铺"));
+        assertTrue(tool.description().contains("有什么优惠可以领"));
         assertEquals(1, records.size());
         assertSame(coupon, records.get(0));
     }

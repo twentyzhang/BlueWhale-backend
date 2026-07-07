@@ -14,7 +14,9 @@ public class ProductDetailTool implements Tool {
     private final ProductService productService;
 
     public String name() { return "get_product_detail"; }
-    public String description() { return "查询单个商品的详情（名称/价格/库存/评分）。需 productId。"; }
+    public String description() {
+        return "查询单个商品详情，包括名称、价格、库存、评分等。用户提到具体商品并需要价格、评分、详情或进一步比较时使用。需 productId。";
+    }
     public Map<String, Object> parametersSchema() {
         return Map.of("type", "object",
                 "properties", Map.of("productId", Map.of("type", "integer", "description", "商品 ID")),

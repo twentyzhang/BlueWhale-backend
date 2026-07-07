@@ -19,6 +19,16 @@ class AgentPromptComposerTest {
         assertThat(prompt).contains("优先调用 search_products");
         assertThat(prompt).contains("最多推荐3个商品");
         assertThat(prompt).contains("结论先行");
+        assertThat(prompt).contains("不得编造商品");
+        assertThat(prompt).contains("工具结果为空");
+    }
+
+    @Test
+    void defaultSystemPrompt_containsGroundingAndEmptyResultGuidance() {
+        AgentProperties props = new AgentProperties();
+
+        assertThat(props.getSystemPrompt()).contains("不得编造商品");
+        assertThat(props.getSystemPrompt()).contains("找不到结果或工具失败");
     }
 
     @Test

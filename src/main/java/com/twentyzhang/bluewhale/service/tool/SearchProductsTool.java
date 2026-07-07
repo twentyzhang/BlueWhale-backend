@@ -17,7 +17,7 @@ public class SearchProductsTool implements Tool {
 
     public String name() { return "search_products"; }
     public String description() {
-        return "按自然语言语义搜索商品，可选分类与价格区间。用于用户想找/推荐商品时。返回商品列表。";
+        return "按自然语言语义搜索商品。用于商品推荐、场景导购、预算/用途/对象类问题，例如送礼、夏天饮料、做饭调味、无糖食品。返回商品列表。";
     }
     public Map<String, Object> parametersSchema() {
         return Map.of("type", "object",

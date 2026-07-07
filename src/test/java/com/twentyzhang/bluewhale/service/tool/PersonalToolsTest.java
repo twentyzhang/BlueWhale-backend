@@ -12,6 +12,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -28,6 +29,8 @@ class PersonalToolsTest {
         when(orderService.getMyOrders(eq(7L), any(), anyInt(), anyInt())).thenReturn(page);
 
         MyOrdersTool tool = new MyOrdersTool(orderService);
+        assertTrue(tool.description().contains("必须只基于当前用户上下文"));
+        assertTrue(tool.description().contains("上次买过什么"));
         // 恶意 args 里塞别人的 userId=999，必须被忽略
         tool.execute(om.readTree("{\"userId\":999,\"status\":\"PAID\"}"), new AgentContext(7L, "CUSTOMER"));
 
@@ -39,6 +42,8 @@ class PersonalToolsTest {
     void myCoupons_alwaysUsesCtxUserId_ignoringArgsUserId() throws Exception {
         when(couponService.getMyCoupons(eq(7L), isNull())).thenReturn(List.of());
         MyCouponsTool tool = new MyCouponsTool(couponService);
+        assertTrue(tool.description().contains("必须只基于当前用户上下文"));
+        assertTrue(tool.description().contains("我的券能不能用"));
         tool.execute(om.readTree("{\"userId\":999}"), new AgentContext(7L, "CUSTOMER"));
         verify(couponService).getMyCoupons(7L, null);
         verify(couponService, never()).getMyCoupons(eq(999L), any());

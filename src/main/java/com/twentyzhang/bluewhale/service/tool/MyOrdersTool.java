@@ -13,7 +13,9 @@ public class MyOrdersTool implements Tool {
     private final OrderService orderService;
 
     public String name() { return "get_my_orders"; }
-    public String description() { return "查询当前登录用户自己的订单（状态/物流）。可选 status 过滤。"; }
+    public String description() {
+        return "查询当前登录用户自己的订单、状态和物流信息。用户问我的订单、物流、上次买过什么时使用。必须只基于当前用户上下文。可选 status 过滤。";
+    }
     public Map<String, Object> parametersSchema() {
         return Map.of("type", "object",
                 "properties", Map.of("status", Map.of("type", "string",

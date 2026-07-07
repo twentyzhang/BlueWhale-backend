@@ -15,7 +15,9 @@ public class CheckStockTool implements Tool {
     private final ProductService productService;
 
     public String name() { return "check_stock"; }
-    public String description() { return "查询某商品当前库存数量（用户问'还有货吗/剩多少'）。需 productId。"; }
+    public String description() {
+        return "查询某商品当前库存数量。用户问还有货吗、库存多少、能不能买时使用。需先知道 productId。";
+    }
     public Map<String, Object> parametersSchema() {
         return Map.of("type", "object",
                 "properties", Map.of("productId", Map.of("type", "integer", "description", "商品 ID")),
