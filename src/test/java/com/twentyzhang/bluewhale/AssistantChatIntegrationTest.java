@@ -134,7 +134,7 @@ class AssistantChatIntegrationTest {
         // 直接等待 emitter.complete() 后从 MockHttpServletResponse 读取已累积的内容。
         MvcResult asyncMvcResult = mvc.perform(
                         get("/api/assistant/chat")
-                                .param("q", "耳机")
+                                .param("q", "推荐一款耳机")
                                 .header("Authorization", "Bearer " + token)
                                 .accept(MediaType.TEXT_EVENT_STREAM))
                 .andExpect(request().asyncStarted())
@@ -159,6 +159,32 @@ class AssistantChatIntegrationTest {
         // 确认 streamFinal 回调被真实触发：delta 出现在响应体中
         assertThat(body).as("响应体应含流式片段 '推荐'").contains("推荐");
         assertThat(body).as("响应体应含流式片段 '这款'").contains("这款");
+    }
+
+    @Test
+    @DisplayName("模糊推荐输入 -> 直接追问，不产生 step/tool/products")
+    void vagueRecommendation_streamsClarificationOnly() throws Exception {
+        String token = loginOrNull();
+        Assumptions.assumeTrue(token != null,
+                "基础设施（MySQL/Redis）不可用，跳过认证 SSE 集成测试");
+
+        MvcResult asyncMvcResult = mvc.perform(
+                        get("/api/assistant/chat")
+                                .param("q", "推荐点东西")
+                                .header("Authorization", "Bearer " + token)
+                                .accept(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        asyncMvcResult.getAsyncResult(15_000L);
+
+        String body = asyncMvcResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(body).contains("answer");
+        assertThat(body).contains("done");
+        assertThat(body).contains("预算");
+        assertThat(body).doesNotContain("step");
+        assertThat(body).doesNotContain("tool");
+        assertThat(body).doesNotContain("products");
     }
 
     // -----------------------------------------------------------------------

@@ -58,6 +58,22 @@ class AssistantAgentServiceTest {
     }
 
     @Test
+    void couponQuestion_addsCouponIntentHintToSystemPrompt() throws Exception {
+        ToolRegistry reg = new ToolRegistry(List.of(fakeSearch()));
+        when(client.chat(anyList(), anyList()))
+                .thenReturn(new AgentTurn("ok", List.of()));
+        doAnswer(inv -> null).when(client).streamFinal(anyList(), any());
+
+        service(reg).chat("我的优惠券有哪些能用", new AgentContext(1L, "CUSTOMER"), emitter);
+
+        verify(client).chat(argThat(messages -> {
+            AgentMessage system = messages.get(0);
+            return system.content().contains("PERSONAL_COUPON")
+                    && system.content().contains("优先调用 list_my_coupons");
+        }), anyList());
+    }
+
+    @Test
     void vagueRequest_asksClarificationWithoutCallingLlmOrTools() throws Exception {
         ToolRegistry reg = new ToolRegistry(List.of(fakeSearch()));
 
