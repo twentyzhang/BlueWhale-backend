@@ -44,4 +44,28 @@ class AgentPromptComposerTest {
         assertThat(prompt).contains("优先调用 get_my_orders");
         assertThat(prompt).contains("不要猜测订单状态");
     }
+
+    @Test
+    void stockOrDetailPrompt_searchesBeforeDetailWhenProductIdMissing() {
+        AgentProperties props = new AgentProperties();
+        props.setSystemPrompt("基础提示");
+        AgentPromptComposer composer = new AgentPromptComposer(props);
+
+        String prompt = composer.compose(AgentIntent.STOCK_OR_DETAIL);
+
+        assertThat(prompt).contains("如果用户没有给 productId，先用 search_products 定位商品");
+        assertThat(prompt).contains("拿到 productId 后再调用 get_product_detail 或 check_stock");
+    }
+
+    @Test
+    void nullIntentFallsBackToGeneralGuidance() {
+        AgentProperties props = new AgentProperties();
+        props.setSystemPrompt("基础提示");
+        AgentPromptComposer composer = new AgentPromptComposer(props);
+
+        String prompt = composer.compose(null);
+
+        assertThat(prompt).contains("当前意图：GENERAL_GUIDANCE");
+        assertThat(prompt).contains("一般导购场景");
+    }
 }

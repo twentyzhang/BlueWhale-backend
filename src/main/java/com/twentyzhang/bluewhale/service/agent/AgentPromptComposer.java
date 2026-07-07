@@ -37,7 +37,7 @@ public class AgentPromptComposer {
             case PERSONAL_COUPON ->
                     "优惠券场景：优先调用 list_my_coupons 查询当前登录用户已领取的券；必要时再调用 list_claimable_coupons 查询可领取券。";
             case STOCK_OR_DETAIL ->
-                    "库存/详情场景：如果用户没有给 productId，先用 search_products 或 get_product_detail 定位商品，再调用 check_stock。";
+                    "库存/详情场景：如果用户没有给 productId，先用 search_products 定位商品；拿到 productId 后再调用 get_product_detail 或 check_stock。";
             case UNCLEAR ->
                     "模糊场景：如果仍进入模型循环，请先用简短中文追问一个关键条件。";
             case GENERAL_GUIDANCE ->
