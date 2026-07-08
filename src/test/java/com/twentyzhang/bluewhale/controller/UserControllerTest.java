@@ -1,11 +1,13 @@
 package com.twentyzhang.bluewhale.controller;
 
 import com.twentyzhang.bluewhale.common.AuthUser;
+import com.twentyzhang.bluewhale.config.AiMetrics;
 import com.twentyzhang.bluewhale.config.SecurityConfig;
 import com.twentyzhang.bluewhale.dto.LoginResponse;
 import com.twentyzhang.bluewhale.exception.BusinessException;
 import com.twentyzhang.bluewhale.filter.JwtAuthenticationFilter;
 import com.twentyzhang.bluewhale.service.UserService;
+import com.twentyzhang.bluewhale.util.RateLimitUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -45,6 +47,12 @@ class UserControllerTest {
 
     @MockitoBean
     private UserService userService;
+
+    @MockitoBean
+    private RateLimitUtil rateLimitUtil;
+
+    @MockitoBean
+    private AiMetrics aiMetrics;
 
     /** 为需要鉴权的测试设置 SecurityContext。 */
     private void setupAuth(Long userId, String role) {

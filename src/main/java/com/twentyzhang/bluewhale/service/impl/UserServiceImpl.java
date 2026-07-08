@@ -14,6 +14,7 @@ import com.twentyzhang.bluewhale.entity.User;
 import com.twentyzhang.bluewhale.exception.BusinessException;
 import com.twentyzhang.bluewhale.mapper.UserMapper;
 import com.twentyzhang.bluewhale.service.UserService;
+import com.twentyzhang.bluewhale.util.AuthUtil;
 import com.twentyzhang.bluewhale.util.JwtUtil;
 import com.twentyzhang.bluewhale.util.RedisUtil;
 import com.twentyzhang.bluewhale.util.TokenVersionStore;
@@ -45,7 +46,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 .phone(request.getPhone())
                 .password(passwordEncoder.encode(request.getPassword()))
                 .nickname(request.getNickname())
-                .role(request.getRole())
+                // Security: always assign CUSTOMER on self-registration; ignore client-supplied role
+                // to prevent privilege escalation. Privileged roles (ADMIN/STAFF) are provisioned
+                // only via seed data (R__seed_data.sql) or backend admin tooling.
+                .role(AuthUtil.ROLE_CUSTOMER)
                 .build();
         save(user);
     }

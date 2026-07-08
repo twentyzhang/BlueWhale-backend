@@ -1,0 +1,174 @@
+package com.twentyzhang.bluewhale.service.impl;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.twentyzhang.bluewhale.config.AgentProperties;
+import com.twentyzhang.bluewhale.config.AiMetrics;
+import com.twentyzhang.bluewhale.service.AgentChatClient;
+import com.twentyzhang.bluewhale.service.AssistantAgentService;
+import com.twentyzhang.bluewhale.service.agent.AgentClarificationPolicy;
+import com.twentyzhang.bluewhale.service.agent.AgentIntent;
+import com.twentyzhang.bluewhale.service.agent.AgentIntentClassifier;
+import com.twentyzhang.bluewhale.service.agent.AgentPromptComposer;
+import com.twentyzhang.bluewhale.service.llm.AgentMessage;
+import com.twentyzhang.bluewhale.service.llm.AgentTurn;
+import com.twentyzhang.bluewhale.service.llm.ToolCall;
+import com.twentyzhang.bluewhale.service.tool.AgentContext;
+import com.twentyzhang.bluewhale.service.tool.Tool;
+import com.twentyzhang.bluewhale.service.tool.ToolRegistry;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+@Slf4j
+@Service
+public class AssistantAgentServiceImpl implements AssistantAgentService {
+
+    private final AgentChatClient client;
+    private final ToolRegistry registry;
+    private final AgentProperties props;
+    private final ObjectMapper om;
+    private final Executor executor;
+    private final AiMetrics metrics;
+    private final AgentIntentClassifier intentClassifier;
+    private final AgentClarificationPolicy clarificationPolicy;
+    private final AgentPromptComposer promptComposer;
+
+    public AssistantAgentServiceImpl(AgentChatClient client, ToolRegistry registry,
+                                     AgentProperties props, ObjectMapper om,
+                                     @Qualifier("assistantStreamExecutor") Executor executor,
+                                     AiMetrics metrics,
+                                     AgentIntentClassifier intentClassifier,
+                                     AgentClarificationPolicy clarificationPolicy,
+                                     AgentPromptComposer promptComposer) {
+        this.client = client; this.registry = registry; this.props = props;
+        this.om = om; this.executor = executor; this.metrics = metrics;
+        this.intentClassifier = intentClassifier;
+        this.clarificationPolicy = clarificationPolicy;
+        this.promptComposer = promptComposer;
+    }
+
+    @Override
+    public void chat(String q, AgentContext ctx, SseEmitter emitter) {
+        executor.execute(() -> runLoop(q, ctx, emitter));
+    }
+
+    private void runLoop(String q, AgentContext ctx, SseEmitter emitter) {
+        // Per-request disconnect flag — local variable, never shared across calls.
+        AtomicBoolean disconnected = new AtomicBoolean(false);
+        List<AgentMessage> messages = new ArrayList<>();
+        AgentIntent intent = intentClassifier.classify(q);
+
+        try {
+            var clarification = clarificationPolicy.maybeAsk(q, intent);
+            if (clarification.isPresent()) {
+                send(emitter, "answer", clarification.get(), disconnected);
+                send(emitter, "done", "", disconnected);
+                metrics.recordAgentRounds(0);
+                emitter.complete();
+                return;
+            }
+
+            messages.add(AgentMessage.system(promptComposer.compose(intent)));
+            messages.add(AgentMessage.user(q));
+            List<Map<String, Object>> schemas = registry.toolSchemas();
+
+            for (int round = 0; round < props.getMaxRounds(); round++) {
+                if (disconnected.get()) break;  // client gone — skip remaining rounds
+                AgentTurn turn = client.chat(messages, schemas);
+                if (!turn.hasToolCalls()) {
+                    // 收敛：流式产出最终回答
+                    client.streamFinal(messages, delta -> send(emitter, "answer", delta, disconnected));
+                    send(emitter, "done", "", disconnected);
+                    metrics.recordAgentRounds(round + 1);
+                    emitter.complete();
+                    return;
+                }
+                // 记录 assistant 的 tool_calls，再逐个执行并回灌
+                messages.add(AgentMessage.assistantToolCalls(turn.toolCalls()));
+                for (ToolCall call : turn.toolCalls()) {
+                    String resultJson = executeTool(call, ctx, emitter, disconnected);
+                    messages.add(AgentMessage.tool(call.id(), resultJson));
+                }
+            }
+            // 超最大轮数未收敛
+            metrics.recordAgentRounds(props.getMaxRounds());
+            send(emitter, "error", "这个问题有点复杂，换个问法试试？", disconnected);
+            emitter.complete();
+        } catch (Exception e) {
+            log.warn("Agent 运行失败：{}", e.getMessage());
+            send(emitter, "error", "助手繁忙，请稍后再试", disconnected);
+            emitter.complete();
+        }
+    }
+
+    /** 执行一个工具：发 step → 执行（命中商品推 products）→ 发 tool；返回回灌给 LLM 的 JSON。 */
+    private String executeTool(ToolCall call, AgentContext ctx, SseEmitter emitter, AtomicBoolean disconnected) {
+        Tool tool;
+        try {
+            tool = registry.get(call.name());
+        } catch (IllegalArgumentException unknown) {
+            metrics.recordToolInvocation(call.name(), false);
+            sendJson(emitter, "tool", Map.of("tool", call.name(), "ok", false), disconnected);
+            return "{\"error\":\"未知工具\"}";
+        }
+        sendJson(emitter, "step", Map.of("tool", tool.name(), "label", stepLabel(tool.name())), disconnected);
+        try {
+            JsonNode args = om.readTree(call.argumentsJson() == null ? "{}" : call.argumentsJson());
+            Object result = tool.execute(args, ctx);
+            if (tool.producesProducts()) {
+                send(emitter, "products", om.writeValueAsString(result), disconnected);
+            }
+            metrics.recordToolInvocation(tool.name(), true);
+            sendJson(emitter, "tool", Map.of("tool", tool.name(), "ok", true), disconnected);
+            return om.writeValueAsString(result);
+        } catch (Exception e) {
+            log.warn("工具 {} 执行失败：{}", tool.name(), e.getMessage());
+            metrics.recordToolInvocation(tool.name(), false);
+            sendJson(emitter, "tool", Map.of("tool", tool.name(), "ok", false), disconnected);
+            String msg = e.getMessage() == null ? "" : e.getMessage();
+            try {
+                return om.writeValueAsString(Map.of("error", "工具执行失败：" + msg));
+            } catch (Exception je) {
+                return "{\"error\":\"工具执行失败\"}";
+            }
+        }
+    }
+
+    private static String stepLabel(String tool) {
+        return switch (tool) {
+            case "search_products"       -> "正在搜索商品…";
+            case "get_product_detail"    -> "正在查询商品详情…";
+            case "check_stock"           -> "正在查询库存…";
+            case "list_claimable_coupons"-> "正在查询可领优惠券…";
+            case "get_my_orders"         -> "正在查询你的订单…";
+            case "list_my_coupons"       -> "正在查询你的优惠券…";
+            default                      -> "正在处理…";
+        };
+    }
+
+    private void send(SseEmitter emitter, String event, String data, AtomicBoolean disconnected) {
+        try {
+            if ("products".equals(event)) {
+                emitter.send(SseEmitter.event().name(event).data(data, MediaType.APPLICATION_JSON));
+            } else {
+                emitter.send(SseEmitter.event().name(event).data(data));
+            }
+        } catch (Exception ignored) {
+            disconnected.set(true);  // 客户端断开：标记后续轮次跳过
+        }
+    }
+
+    private void sendJson(SseEmitter emitter, String event, Object payload, AtomicBoolean disconnected) {
+        try { send(emitter, event, om.writeValueAsString(payload), disconnected); } catch (Exception ignored) {}
+    }
+
+}

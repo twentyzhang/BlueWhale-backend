@@ -9,6 +9,12 @@ import java.util.concurrent.Executor;
 @Configuration
 public class RagExecutorConfig {
 
+    private final MdcTaskDecorator mdcTaskDecorator;
+
+    public RagExecutorConfig(MdcTaskDecorator mdcTaskDecorator) {
+        this.mdcTaskDecorator = mdcTaskDecorator;
+    }
+
     /** RAG 流式生成的后台线程池：SseEmitter 主线程秒返回，流在此推送，不阻塞容器请求线程。 */
     @Bean("ragStreamExecutor")
     public Executor ragStreamExecutor() {
@@ -17,6 +23,7 @@ public class RagExecutorConfig {
         e.setMaxPoolSize(8);
         e.setQueueCapacity(50);
         e.setThreadNamePrefix("rag-stream-");
+        e.setTaskDecorator(mdcTaskDecorator);
         e.initialize();
         return e;
     }

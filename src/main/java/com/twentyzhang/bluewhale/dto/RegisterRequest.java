@@ -20,7 +20,10 @@ public class RegisterRequest {
     @Size(min = 2, max = 20, message = "昵称长度须在 2-20 个字符之间")
     private String nickname;
 
-    /** 注册角色：CUSTOMER / STAFF */
+    /**
+     * 注册角色：客户端传入的值会被服务端忽略（始终强制为 CUSTOMER），
+     * 保留此字段仅为兼容现有 JSON payload 及测试。
+     */
     @NotBlank(message = "角色不能为空")
     @Pattern(regexp = "^(CUSTOMER|STAFF)$", message = "角色只能为 CUSTOMER 或 STAFF")
     private String role;
