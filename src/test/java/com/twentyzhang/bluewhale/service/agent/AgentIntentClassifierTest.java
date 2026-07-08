@@ -12,6 +12,8 @@ class AgentIntentClassifierTest {
     void vagueRecommendation_isUnclear() {
         assertThat(classifier.classify("推荐点东西")).isEqualTo(AgentIntent.UNCLEAR);
         assertThat(classifier.classify("买什么好")).isEqualTo(AgentIntent.UNCLEAR);
+        assertThat(classifier.classify("有什么推荐")).isEqualTo(AgentIntent.UNCLEAR);
+        assertThat(classifier.classify("推荐一下")).isEqualTo(AgentIntent.UNCLEAR);
     }
 
     @Test
@@ -19,6 +21,8 @@ class AgentIntentClassifierTest {
         assertThat(classifier.classify("送长辈的健康礼物，预算100"))
                 .isEqualTo(AgentIntent.PRODUCT_RECOMMENDATION);
         assertThat(classifier.classify("夏天喝点无糖的"))
+                .isEqualTo(AgentIntent.PRODUCT_RECOMMENDATION);
+        assertThat(classifier.classify("有什么优惠的饮料推荐"))
                 .isEqualTo(AgentIntent.PRODUCT_RECOMMENDATION);
     }
 
